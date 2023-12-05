@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.2
+Version: 0.3
 Author: Anton Zanizdra
 */
 
@@ -12,10 +12,14 @@ function mt_add_pages() {
 }
 add_action('admin_menu', 'mt_add_pages');
 
-// mt_settings_page() displays the page content for the Test settings submenu
 function mt_settings_page() {
     echo "<h2>" . __( 'SGC Translation Settings', 'menu-test' ) . "</h2>";
+    echo '<form action="options.php" method="post">';
+    settings_fields('mt_options');
+    do_settings_sections('translationhandle');
+    submit_button();
     // place your settings form here 
+    echo '</form>';
 }
 
 // Register and define the settings
@@ -82,15 +86,6 @@ function use_translated_posts() {
     // Backup the original posts and postmeta tables
     // Replace the original posts and postmeta tables with the translated ones
     // Log the process
-}
-
-function mt_settings_page() {
-    echo "<h2>" . __( 'Translation Settings', 'menu-test' ) . "</h2>";
-    echo '<form action="options.php" method="post">';
-    settings_fields('mt_options');
-    do_settings_sections('translationhandle');
-    submit_button();
-    echo '</form>';
 }
 
 ?>
