@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.3
+Version: 0.4
 Author: Anton Zanizdra
 */
 
@@ -28,6 +28,9 @@ function mt_admin_init(){
     register_setting( 'mt_options', 'mt_options', 'mt_validate_options' );
     add_settings_section('mt_main', 'Main Settings', 'mt_section_text', 'translationhandle');
     add_settings_field('mt_text_string', 'Language Code', 'mt_setting_string', 'translationhandle', 'mt_main');
+    add_settings_field('mt_project_id', 'Project ID', 'mt_setting_project_id', 'translationhandle', 'mt_main');
+    add_settings_field('mt_private_key_id', 'Private Key ID', 'mt_setting_private_key_id', 'translationhandle', 'mt_main');
+    add_settings_field('mt_private_key', 'Private Key', 'mt_setting_private_key', 'translationhandle', 'mt_main');
 }
 
 function mt_plugin_action_links($links) {
@@ -44,18 +47,60 @@ function mt_section_text() {
 }
 
 // Display and fill the form field
-function mt_setting_string() {
-    // get option 'text_string' value from the database
+function mt_setting_project_id() {
+    // get option 'project_id' value from the database
     $options = get_option( 'mt_options' );
-    $value = $options['text_string'];
+    $value = $options['project_id'];
     // echo the field
-    echo "<input id='mt_text_string' name='mt_options[text_string]' type='text' value='$value' />";
+    echo "<input id='mt_project_id' name='mt_options[project_id]' type='text' value='$value' />";
 }
+
+function mt_setting_private_key_id() {
+    // get option 'private_key_id' value from the database
+    $options = get_option( 'mt_options' );
+    $value = $options['private_key_id'];
+    // echo the field
+    echo "<input id='mt_private_key_id' name='mt_options[private_key_id]' type='text' value='$value' />";
+}
+
+function mt_setting_private_key() {
+    // get option 'private_key' value from the database
+    $options = get_option( 'mt_options' );
+    $value = $options['private_key'];
+    // echo the field
+    echo "<input id='mt_private_key' name='mt_options[private_key]' type='text' value='$value' />";
+}
+
+// List of supported languages by Google Cloud Translation API
+$supported_languages = array("af", "sq", "am", "ar", "hy", "as", "ay", "az", "bm", "eu", "be", "bn", "bho", "bs", "bg", "ca", "ceb", "zh-CN", "zh-TW", "co", "hr", "cs", "da", "dv", "doi", "nl", "en", "eo", "et", "ee", "fil", "fi", "fr", "fy", "gl", "ka", "de", "el", "gn", "gu", "ht", "ha", "haw", "he", "hi", "hmn", "hu", "is", "ig", "ilo", "id", "ga", "it", "ja", "jv", "kn", "kk", "km", "rw", "gom", "ko", "kri", "ku", "ckb", "ky", "lo", "la", "lv", "ln", "lt", "lg", "lb", "mk", "mai", "mg", "ms", "ml", "mt", "mi", "mr", "mni-Mtei", "lus", "mn", "my", "ne", "no", "ny", "or", "om", "ps", "fa", "pl", "pt", "pa", "qu", "ro", "ru", "sm", "sa", "gd", "nso", "sr", "st", "sn", "sd", "si", "sk", "sl", "so", "es", "su", "sw", "sv", "tl", "tg", "ta", "tt", "te", "th", "ti", "ts", "tr", "tk", "ak", "uk", "ur", "ug", "uz", "vi", "cy", "xh", "yi", "yo", "zu");
 
 // Validate user input
 function mt_validate_options($input) {
+    global $supported_languages;
     $valid = array();
-    $valid['text_string'] = sanitize_text_field($input['text_string']);
+    $language_code = sanitize_text_field($input['text_string']);
+
+    // Check if the language code is in the list of supported languages
+    if (in_array($language_code, $supported_languages)) {
+        $valid['text_string'] = $language_code;
+    } else {
+        add_settings_error(
+            'mt_options',           // Setting title
+            'mt_texterror',            // Error ID
+            'Please enter a valid language code.',   // Error message
+            'error'                        // Type of message
+        );
+    }
+
+    // Validate the Project ID
+    $valid['project_id'] = sanitize_text_field($input['project_id']);
+
+    // Validate the Private Key ID
+    $valid['private_key_id'] = sanitize_text_field($input['private_key_id']);
+
+    // Validate the Private Key
+    $valid['private_key'] = sanitize_text_field($input['private_key']);
+
     return $valid;
 }
 
