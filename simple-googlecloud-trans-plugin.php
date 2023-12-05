@@ -2,9 +2,23 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.8
+Version: 0.9
 Author: Anton Zanizdra
 */
+
+register_activation_hook(__FILE__, 'mt_activate');
+function mt_activate() {
+    global $wpdb;
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE {$wpdb->prefix}trans_posts LIKE {$wpdb->prefix}posts;
+            CREATE TABLE {$wpdb->prefix}trans_postmeta LIKE {$wpdb->prefix}postmeta;
+            CREATE TABLE {$wpdb->prefix}bak_posts LIKE {$wpdb->prefix}posts;
+            CREATE TABLE {$wpdb->prefix}bak_postmeta LIKE {$wpdb->prefix}postmeta;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
 
 // Add a new submenu under Settings
 function mt_add_pages() {
@@ -17,9 +31,11 @@ function mt_settings_page() {
     echo '<form action="options.php" method="post">';
     settings_fields('mt_options');
     do_settings_sections('translationhandle');
-    submit_button();
-    // place your settings form here 
+    submit_button('Запустити перекладач');
+    submit_button('Використати переклад');
     echo '</form>';
+    echo '<p>Шлях до логу плагіну: ' . plugin_dir_path(__FILE__) . 'sgslog.txt</p>';
+    echo '<a href="' . plugin_dir_url(__FILE__) . 'sgslog.txt" download>Скачати лог</a>';
 }
 
 // Register and define the settings
