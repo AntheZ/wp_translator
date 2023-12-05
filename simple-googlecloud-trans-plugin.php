@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.5
+Version: 0.6
 Author: Anton Zanizdra
 */
 
@@ -28,9 +28,7 @@ function mt_admin_init(){
     register_setting( 'mt_options', 'mt_options', 'mt_validate_options' );
     add_settings_section('mt_main', 'Main Settings', 'mt_section_text', 'translationhandle');
     add_settings_field('mt_text_string', 'Language Code', 'mt_setting_string', 'translationhandle', 'mt_main');
-    add_settings_field('mt_project_id', 'Project ID', 'mt_setting_project_id', 'translationhandle', 'mt_main');
-    add_settings_field('mt_private_key_id', 'Private Key ID', 'mt_setting_private_key_id', 'translationhandle', 'mt_main');
-    add_settings_field('mt_private_key', 'Private Key', 'mt_setting_private_key', 'translationhandle', 'mt_main');
+    add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
 }
 
 function mt_plugin_action_links($links) {
@@ -55,28 +53,12 @@ function mt_setting_string() {
     echo "<input id='mt_text_string' name='mt_options[text_string]' type='text' value='$value' />";
 }
 
-function mt_setting_project_id() {
-    // get option 'project_id' value from the database
+function mt_setting_api_key() {
+    // get option 'api_key' value from the database
     $options = get_option( 'mt_options' );
-    $value = $options['project_id'];
+    $value = $options['api_key'];
     // echo the field
-    echo "<input id='mt_project_id' name='mt_options[project_id]' type='text' value='$value' />";
-}
-
-function mt_setting_private_key_id() {
-    // get option 'private_key_id' value from the database
-    $options = get_option( 'mt_options' );
-    $value = $options['private_key_id'];
-    // echo the field
-    echo "<input id='mt_private_key_id' name='mt_options[private_key_id]' type='text' value='$value' />";
-}
-
-function mt_setting_private_key() {
-    // get option 'private_key' value from the database
-    $options = get_option( 'mt_options' );
-    $value = $options['private_key'];
-    // echo the field
-    echo "<input id='mt_private_key' name='mt_options[private_key]' type='text' value='$value' />";
+    echo "<input id='mt_api_key' name='mt_options[api_key]' type='text' value='$value' />";
 }
 
 // List of supported languages by Google Cloud Translation API
@@ -100,16 +82,13 @@ function mt_validate_options($input) {
         );
     }
 
-    // Validate the Project ID
-    $valid['project_id'] = sanitize_text_field($input['project_id']);
-
-    // Validate the Private Key ID
-    $valid['private_key_id'] = sanitize_text_field($input['private_key_id']);
-
-    // Validate the Private Key
-    $valid['private_key'] = sanitize_text_field($input['private_key']);
-
-    return $valid;
+    $api_key = $input['api_key'];
+    $url = "https://translation.googleapis.com/language/translate/v2?key=$api_key&q=hello&source=en&target=es";
+    $response = wp_remote_get($url);
+    if ( is_wp_error( $response ) ) {
+        add_settings_error('mt_options', 'mt_connection_error', 'Could not connect to the API. Please check your API key.');
+    }
+    return $input;
 }
 
 // Connect to Google Cloud Translation API and translate the posts
