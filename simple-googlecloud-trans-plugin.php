@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.6
+Version: 0.7
 Author: Anton Zanizdra
 */
 
@@ -27,7 +27,8 @@ add_action('admin_init', 'mt_admin_init');
 function mt_admin_init(){
     register_setting( 'mt_options', 'mt_options', 'mt_validate_options' );
     add_settings_section('mt_main', 'Main Settings', 'mt_section_text', 'translationhandle');
-    add_settings_field('mt_text_string', 'Language Code', 'mt_setting_string', 'translationhandle', 'mt_main');
+    add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main');
+    add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
 }
 
@@ -44,13 +45,22 @@ function mt_section_text() {
     echo '<p>Enter your settings here.</p>';
 }
 
-// Display and fill the form field
-function mt_setting_string() {
-    // get option 'text_string' value from the database
+// Display and fill the website language form field
+function mt_setting_website_language_code() {
+    // get option 'website_language_code' value from the database
     $options = get_option( 'mt_options' );
-    $value = $options['text_string'];
+    $value = $options['website_language_code'];
     // echo the field
-    echo "<input id='mt_text_string' name='mt_options[text_string]' type='text' value='$value' />";
+    echo "<input id='mt_website_language_code' name='mt_options[website_language_code]' type='text' value='$value' />";
+}
+
+// Display and fill the translation language form field
+function mt_setting_translation_language_code() {
+    // get option 'translation_language_code' value from the database
+    $options = get_option( 'mt_options' );
+    $value = $options['translation_language_code'];
+    // echo the field
+    echo "<input id='mt_translation_language_code' name='mt_options[translation_language_code]' type='text' value='$value' />";
 }
 
 function mt_setting_api_key() {
@@ -71,15 +81,11 @@ function mt_validate_options($input) {
     $language_code = sanitize_text_field($input['text_string']);
 
     // Check if the language code is in the list of supported languages
-    if (in_array($language_code, $supported_languages)) {
-        $valid['text_string'] = $language_code;
-    } else {
-        add_settings_error(
-            'mt_options',           // Setting title
-            'mt_texterror',            // Error ID
-            'Please enter a valid language code.',   // Error message
-            'error'                        // Type of message
-        );
+    if (!in_array($input['website_language_code'], $valid_language_codes)) {
+        add_settings_error('mt_options', 'mt_invalid_website_language_code', 'Invalid website language code.');
+    }
+    if (!in_array($input['translation_language_code'], $valid_language_codes)) {
+        add_settings_error('mt_options', 'mt_invalid_translation_language_code', 'Invalid translation language code.');
     }
 
     $api_key = $input['api_key'];
