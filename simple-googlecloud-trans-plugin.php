@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.4
+Version: 0.5
 Author: Anton Zanizdra
 */
 
@@ -47,6 +47,14 @@ function mt_section_text() {
 }
 
 // Display and fill the form field
+function mt_setting_string() {
+    // get option 'text_string' value from the database
+    $options = get_option( 'mt_options' );
+    $value = $options['text_string'];
+    // echo the field
+    echo "<input id='mt_text_string' name='mt_options[text_string]' type='text' value='$value' />";
+}
+
 function mt_setting_project_id() {
     // get option 'project_id' value from the database
     $options = get_option( 'mt_options' );
