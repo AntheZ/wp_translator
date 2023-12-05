@@ -8,13 +8,13 @@ Author: Anton Zanizdra
 
 // Add a new submenu under Settings
 function mt_add_pages() {
-    add_options_page(__('Translation','menu-test'), __('Translation','menu-test'), 'manage_options', 'translationhandle', 'mt_settings_page');
+    add_options_page(__('Simple GC Translator','menu-test'), __('Simple GC Translator','menu-test'), 'manage_options', 'translationhandle', 'mt_settings_page');
 }
 add_action('admin_menu', 'mt_add_pages');
 
 // mt_settings_page() displays the page content for the Test settings submenu
 function mt_settings_page() {
-    echo "<h2>" . __( 'Translation Settings', 'menu-test' ) . "</h2>";
+    echo "<h2>" . __( 'SGC Translation Settings', 'menu-test' ) . "</h2>";
     // place your settings form here 
 }
 
@@ -25,6 +25,14 @@ function mt_admin_init(){
     add_settings_section('mt_main', 'Main Settings', 'mt_section_text', 'translationhandle');
     add_settings_field('mt_text_string', 'Language Code', 'mt_setting_string', 'translationhandle', 'mt_main');
 }
+
+function mt_plugin_action_links($links) {
+    $settings_link = '<a href="options-general.php?page=translationhandle">' . __( 'Settings' ) . '</a>';
+    array_unshift($links, $settings_link);
+    return $links;
+}
+$plugin = plugin_basename(__FILE__); 
+add_filter("plugin_action_links_$plugin", 'mt_plugin_action_links' );
 
 // Draw the section header
 function mt_section_text() {
@@ -74,6 +82,15 @@ function use_translated_posts() {
     // Backup the original posts and postmeta tables
     // Replace the original posts and postmeta tables with the translated ones
     // Log the process
+}
+
+function mt_settings_page() {
+    echo "<h2>" . __( 'Translation Settings', 'menu-test' ) . "</h2>";
+    echo '<form action="options.php" method="post">';
+    settings_fields('mt_options');
+    do_settings_sections('translationhandle');
+    submit_button();
+    echo '</form>';
 }
 
 ?>
