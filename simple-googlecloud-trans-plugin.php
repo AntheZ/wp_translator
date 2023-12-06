@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.13
+Version: 0.14
 Author: AntheZ
 */
 
@@ -189,7 +189,6 @@ function detectLanguage($text) {
     // Набір унікальних слів для кожної мови
     $ukrainianWords = array('і', 'ї', 'є', 'ґ');
     $russianWords = array('ы', 'э', 'ё', 'й');
-
     $ukCount = 0;
     $ruCount = 0;
 
@@ -209,6 +208,12 @@ function detectLanguage($text) {
         return 'ru';
     }
 }
+
+// lets analyze how many posts we have and their language
+Зрозуміло, ви хочете видалити логування в файл і замість цього виводити повідомлення через AJAX. Ось оновлений код:
+
+PHP
+Код, створений штучним інтелектом. Перевіряйте та використовуйте обережно. Додаткові відомості про запитання й відповіді.
 
 // lets analyze how many posts we have and their language
 function analysePosts() {
@@ -256,11 +261,29 @@ function analysePosts() {
     $end_time = microtime(true);
     $execution_time = $end_time - $start_time;
 
-    // Записуємо результати в файл журналу
-    $log_file = fopen("sgclog.txt", "a");
-    $log_entry = "Оброблено " . count($posts) . " статей - витрачено часу " . $execution_time . " секунд\n";
-    fwrite($log_file, $log_entry);
-    fclose($log_file);
+    // Повертаємо результати через AJAX
+    echo "Аналіз завершено. Оброблено " . count($posts) . " статей. Витрачено часу " . $execution_time . " секунд.";
+    wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
 }
+
+add_action('wp_ajax_analysePosts', 'analysePosts');
+
+// Додаємо JavaScript для обробки натискання кнопки
+echo '
+<script type="text/javascript">
+document.getElementById("analysePostsButton").addEventListener("click", function(e) {
+    e.preventDefault();
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "' . admin_url('admin-ajax.php') . '", true);
+    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+    xhr.onreadystatechange = function() {
+        if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+            alert(this.responseText);
+        }
+    }
+    xhr.send("action=analysePosts");
+});
+</script>
+';
 
 ?>
