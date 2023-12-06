@@ -69,9 +69,12 @@ function pluginSettingsPage() {
         echo '<div class="updated"><p>Аналіз завершено</p></div>';
     }
 
+    echo '<div class="wrap">';
+    echo '<h1>Налаштування плагіну</h1>';
     echo '<form method="post">';
-    echo '<input type="submit" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
+    echo '<input type="button" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" onclick="this.form.submit();" />';
     echo '</form>';
+    echo '</div>';
 }
 
 // Display and fill the website language form field
