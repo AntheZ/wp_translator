@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.14
+Version: 0.15
 Author: AntheZ
 */
 
@@ -34,8 +34,6 @@ function mt_settings_page() {
     submit_button('Запустити перекладач');
     submit_button('Використати переклад');
     echo '</form>';
-    echo '<p>Шлях до логу плагіну: ' . plugin_dir_path(__FILE__) . 'sgclog.txt</p>';
-    echo '<a href="' . plugin_dir_url(__FILE__) . 'sgclog.txt" download>Скачати лог</a>';
 }
 
 // Register and define the settings
