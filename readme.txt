@@ -1,19 +1,19 @@
 === Ваша назва плагіну ===
-Contributors: ваш_ім'я_користувача
-Donate link: https://your-site.com/
+Contributors: AntheZ
+Donate link: https://github.dev/AntheZ/wordpress_translator
 Tags: tag1, tag2
 Requires at least: 4.7
-Tested up to: 5.4
+Tested up to: 6.4.1
 Stable tag: 4.3
 Requires PHP: 7.0
-License: GPLv2 or later
-License URI: https://www.gnu.org/licenses/gpl-2.0.html
+License: GPL-3.0 license
+License URI: http://www.opensource.org/licenses/GPL-3.0.
 
-Тут короткий опис плагіну. Це не повинно бути більше 150 символів. Без розмітки тут.
+Тут колить буде короткий опис плагіну Simple Google Cloud Translator (SGC Translator)
 
 == Description ==
 
-Тут детальний опис вашого плагіну.
+Тут колить буде опис плагіну Simple Google Cloud Translator (SGC Translator). На сьогодні ідея наступна: 1. Проаналізувати існуючі статті на наявність кацапської мови і помітити їх. 2. Зробити переклад в окрему таблицю. 3. Замінити браковані статті на перекладені. 4. Побічним продуктом може стати плагін для всіх мов.
 
 == Installation ==
 
