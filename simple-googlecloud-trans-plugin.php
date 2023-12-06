@@ -64,18 +64,41 @@ function mt_section_text() {
 }
 
 function pluginSettingsPage() {
+    // Перевіряємо, чи була натиснута кнопка
     if (isset($_POST['analyse_posts'])) {
+        // Виконуємо функцію analysePosts
         analysePosts();
         echo '<div class="updated"><p>Аналіз завершено</p></div>';
     }
 
+    // Виводимо форму
     echo '<div class="wrap">';
     echo '<h1>Налаштування плагіну</h1>';
-    echo '<form method="post">';
-    echo '<input type="button" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" onclick="this.form.submit();" />';
+    echo '<form id="analysePostsForm" method="post">';
+    echo '<input type="button" id="analysePostsButton" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
     echo '</form>';
     echo '</div>';
+
+    // Додаємо JavaScript для обробки натискання кнопки
+    echo '
+    <script type="text/javascript">
+    document.getElementById("analysePostsButton").addEventListener("click", function(e) {
+        e.preventDefault();
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "' . admin_url('admin-ajax.php') . '", true);
+        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+        xhr.onreadystatechange = function() {
+            if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                alert("Аналіз завершено");
+            }
+        }
+        xhr.send("action=analysePosts");
+    });
+    </script>
+    ';
 }
+
+add_action('wp_ajax_analysePosts', 'analysePosts');
 
 // Display and fill the website language form field
 function mt_setting_website_language_code() {
