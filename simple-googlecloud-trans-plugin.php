@@ -31,16 +31,6 @@ function mt_settings_page() {
     echo '<form action="options.php" method="post">';
     settings_fields('mt_options');
     do_settings_sections('translationhandle');
-
-    if (isset($_POST['analyse_posts'])) {
-        analysePosts();
-        echo '<div class="updated"><p>Аналіз завершено</p></div>';
-    }
-    echo '<h1>Налаштування плагіну</h1>';
-    echo '<form method="post">';
-    echo '<input type="submit" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
-    echo '</form>';
-
     submit_button('Запустити перекладач');
     submit_button('Використати переклад');
     echo '</form>';
@@ -56,6 +46,7 @@ function mt_admin_init(){
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
+    pluginSettingsPage();
 }
 
 function mt_plugin_action_links($links) {
@@ -77,12 +68,10 @@ function pluginSettingsPage() {
         echo '<div class="updated"><p>Аналіз завершено</p></div>';
     }
 
-    echo '<div class="wrap">';
     echo '<h1>Налаштування плагіну</h1>';
     echo '<form method="post">';
     echo '<input type="submit" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
     echo '</form>';
-    echo '</div>';
 }
 
 // Display and fill the website language form field
