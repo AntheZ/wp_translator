@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.11
+Version: 0.12
 Author: AntheZ
 */
 
@@ -25,17 +25,7 @@ function mt_add_pages() {
     add_options_page(__('Simple GC Translator','menu-test'), __('Simple GC Translator','menu-test'), 'manage_options', 'translationhandle', 'mt_settings_page');
 }
 add_action('admin_menu', 'mt_add_pages');
-add_action('admin_menu', 'addAnalyseButton');
-
-function addAnalyseButton() {
-    add_menu_page(
-        'Аналіз статей', // Назва сторінки
-        'Аналіз статей', // Текст кнопки меню
-        'manage_options', // Потрібне дозволення
-        'analyse_posts', // Slug сторінки
-        'analysePostsPage' // Функція, яка викликається при натисканні кнопки
-    );
-}
+add_action('admin_menu', 'addPluginSettingsPage');
 
 function mt_settings_page() {
     echo "<h2>" . __( 'SGC Translation Settings', 'menu-test' ) . "</h2>";
@@ -72,15 +62,14 @@ function mt_section_text() {
     echo '<p>Enter your settings here.</p>';
 }
 
-// Display button to start analyzing
-function analysePostsPage() {
+function pluginSettingsPage() {
     if (isset($_POST['analyse_posts'])) {
         analysePosts();
         echo '<div class="updated"><p>Аналіз завершено</p></div>';
     }
 
     echo '<div class="wrap">';
-    echo '<h1>Аналіз статей</h1>';
+    echo '<h1>Налаштування плагіну</h1>';
     echo '<form method="post">';
     echo '<input type="submit" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
     echo '</form>';
