@@ -25,7 +25,6 @@ function mt_add_pages() {
     add_options_page(__('Simple GC Translator','menu-test'), __('Simple GC Translator','menu-test'), 'manage_options', 'translationhandle', 'mt_settings_page');
 }
 add_action('admin_menu', 'mt_add_pages');
-add_action('admin_menu', 'addPluginSettingsPage');
 
 function mt_settings_page() {
     echo "<h2>" . __( 'SGC Translation Settings', 'menu-test' ) . "</h2>";
@@ -238,7 +237,5 @@ function analysePosts() {
     fwrite($log_file, $log_entry);
     fclose($log_file);
 }
-
-
 
 ?>
