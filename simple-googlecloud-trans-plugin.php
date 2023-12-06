@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.19
+Version: 0.20
 Author: AntheZ
 */
 
@@ -171,7 +171,7 @@ function translate_posts() {
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
 
         // Перекладаємо заголовок статті за допомогою Google Cloud Translation API
-        $translated_title = translate_text($original_post->post_title, $translation_language_code, $api_key);
+        $translated_title = translate_text($original_post->post_title, $translation_language_code, $website_language_code, $api_key);
 
         // Копіюємо всі поля (крім post_title) в таблицю sgct_trans_posts
         $wpdb->insert(
@@ -205,8 +205,8 @@ function translate_posts() {
     }
 }
 
-function translate_text($text, $target_language, $api_key) {
-    $url = "https://translation.googleapis.com/language/translate/v2?key=$api_key&q=" . urlencode($text) . "&source=ru&target=$target_language";
+function translate_text($text, $target_language, $website_language, $api_key) {
+    $url = "https://translation.googleapis.com/language/translate/v2?key=$api_key&q=" . urlencode($text) . "&source=$website_language&target=$target_language";
     $response = wp_remote_get($url);
     if ( is_wp_error( $response ) ) {
         return $text; // якщо є помилка, повертаємо оригінальний текст
@@ -254,35 +254,49 @@ function detectLanguage($text) {
     }
 }
 
-// lets analyze how many posts we have and their language
+// Давайте проаналізуємо скільки саме у нас статей, та їх мову. Але зробимо це безпечно пачками по Х штук
 function analysePosts() {
     global $wpdb;
 
-    // Отримуємо перші 100 статей
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE post_type = 'post' LIMIT 100");
+    // Встановлюємо кількість статей для обробки за один раз. Потрібно не забути винести цю змінну в налаштування плагіна.
+    $batch_size = 100; 
+
+    // Отримуємо кількість всіх статей
+    $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}posts WHERE post_type = 'post'");
+
+    // Розраховуємо кількість партій
+    $batches = ceil($total_posts / $batch_size);
 
     $start_time = microtime(true);
 
-    foreach ($posts as $post) {
-        // Визначаємо мову статті
-        $language_code = detectLanguage($post->post_content);
+    for ($i = 0; $i < $batches; $i++) {
+        // Обчислюємо зсув для поточної партії
+        $offset = $i * $batch_size;
 
-        // Додаємо дані до нової таблиці
-        $wpdb->insert(
-            "{$wpdb->prefix}sgct_analysed_posts",
-            array(
-                'post_id' => $post->ID,
-                'post_title' => $post->post_title,
-                'language_code' => $language_code
-            )
-        );
+        // Отримуємо статті для поточної партії
+        $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE post_type = 'post' LIMIT $offset, $batch_size");
+
+        foreach ($posts as $post) {
+            // Визначаємо мову статті
+            $language_code = detectLanguage($post->post_content);
+
+            // Додаємо дані до нової таблиці
+            $wpdb->insert(
+                "{$wpdb->prefix}sgct_analysed_posts",
+                array(
+                    'post_id' => $post->ID,
+                    'post_title' => $post->post_title,
+                    'language_code' => $language_code
+                )
+            );
+        }
     }
 
     $end_time = microtime(true);
     $execution_time = $end_time - $start_time;
 
     // Повертаємо результати через AJAX
-    echo "Аналіз завершено. Оброблено " . count($posts) . " статей. Витрачено часу " . $execution_time . " секунд.";
+    echo "Аналіз завершено. Оброблено " . $total_posts . " статей. Витрачено часу " . $execution_time . " секунд.";
     wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
 }
 
