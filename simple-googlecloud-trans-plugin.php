@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.17
+Version: 0.18
 Author: AntheZ
 */
 
@@ -38,8 +38,6 @@ function mt_settings_page() {
     echo '<form action="options.php" method="post">';
     settings_fields('mt_options');
     do_settings_sections('translationhandle');
-    submit_button('Запустити перекладач');
-    submit_button('Використати переклад');
     echo '</form>';
 }
 
@@ -53,6 +51,8 @@ function mt_admin_init(){
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
     add_settings_section('mt_main_analyse', 'Additional Settings', 'mt_section_text', 'translationhandle');
     add_settings_field('mt_analyse_button', 'Analyse Posts', 'pluginSettingsPage', 'translationhandle', 'mt_main_analyse');
+    add_settings_section('mt_main_translate', 'Translation Settings', 'mt_section_text', 'translationhandle');
+    add_settings_field('mt_translate_button', 'Translate Posts', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
 }
 
 function mt_plugin_action_links($links) {
@@ -155,24 +155,63 @@ $valid_language_codes = array("af", "sq", "am", "ar", "hy", "as", "ay", "az", "b
 
 // Connect to Google Cloud Translation API and translate the posts
 function translate_posts() {
-    // Get the language code from the settings
+    global $wpdb;
+
+    // Отримуємо мову перекладу з налаштувань
     $options = get_option( 'mt_options' );
-    $language_code = $options['text_string'];
+    $translation_language_code = $options['translation_language_code'];
+    $api_key = $options['api_key'];
 
-    // Get all posts
-    $args = array(
-        'posts_per_page'   => -1,
-        'post_type'        => 'post',
-    );
-    $posts_array = get_posts( $args );
+    // Отримуємо всі статті з таблиці sgct_analysed_posts, які мають language_code ru
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = 'ru'");
 
-    foreach ( $posts_array as $post ) {
-        // Connect to Google Cloud Translation API and translate the post
-        // Make sure to handle the rate limit of 6000000 characters per minute
-        // Log the translation process
+    foreach ($posts as $post) {
+        // Отримуємо оригінальну статтю з таблиці wp_posts
+        $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
+
+        // Перекладаємо заголовок статті за допомогою Google Cloud Translation API
+        $translated_title = translate_text($original_post->post_title, $translation_language_code, $api_key);
+
+        // Копіюємо всі поля (крім post_title) в таблицю sgct_trans_posts
+        $wpdb->insert(
+            "{$wpdb->prefix}sgct_trans_posts",
+            array(
+                'ID' => $original_post->ID,
+                'post_author' => $original_post->post_author,
+                'post_date' => $original_post->post_date,
+                'post_date_gmt' => $original_post->post_date_gmt,
+                'post_content' => $original_post->post_content,
+                'post_title' => $translated_title, // використовуємо перекладений заголовок
+                'post_excerpt' => $original_post->post_excerpt,
+                'post_status' => $original_post->post_status,
+                'comment_status' => $original_post->comment_status,
+                'ping_status' => $original_post->ping_status,
+                'post_password' => $original_post->post_password,
+                'post_name' => $original_post->post_name,
+                'to_ping' => $original_post->to_ping,
+                'pinged' => $original_post->pinged,
+                'post_modified' => $original_post->post_modified,
+                'post_modified_gmt' => $original_post->post_modified_gmt,
+                'post_content_filtered' => $original_post->post_content_filtered,
+                'post_parent' => $original_post->post_parent,
+                'guid' => $original_post->guid,
+                'menu_order' => $original_post->menu_order,
+                'post_type' => $original_post->post_type,
+                'post_mime_type' => $original_post->post_mime_type,
+                'comment_count' => $original_post->comment_count
+            )
+        );
     }
+}
 
-    // Update the progress bar in the admin interface
+function translate_text($text, $target_language, $api_key) {
+    $url = "https://translation.googleapis.com/language/translate/v2?key=$api_key&q=" . urlencode($text) . "&source=ru&target=$target_language";
+    $response = wp_remote_get($url);
+    if ( is_wp_error( $response ) ) {
+        return $text; // якщо є помилка, повертаємо оригінальний текст
+    }
+    $response_body = json_decode(wp_remote_retrieve_body($response), true);
+    return $response_body['data']['translations'][0]['translatedText'];
 }
 
 // Use the translated posts
@@ -245,5 +284,45 @@ function analysePosts() {
     echo "Аналіз завершено. Оброблено " . count($posts) . " статей. Витрачено часу " . $execution_time . " секунд.";
     wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
 }
+
+function mt_setting_translate_button() {
+    // Перевіряємо, чи була натиснута кнопка
+    if (isset($_POST['translate_posts'])) {
+        // Виконуємо функцію translate_posts
+        $start_time = microtime(true);
+        translate_posts();
+        $end_time = microtime(true);
+        $execution_time = $end_time - $start_time;
+        echo '<div class="updated"><p>Було перекладено ' . count($posts) . ' заголовків статей. Витрачено часу ' . $execution_time . ' секунд.</p></div>';
+    }
+
+    // Виводимо форму
+    echo '<div class="wrap">';
+    echo '<h1>Налаштування плагіну</h1>';
+    echo '<form id="translatePostsForm" method="post">';
+    echo '<input type="button" id="translatePostsButton" name="translate_posts" class="button button-primary" value="Запустити перекладач" />';
+    echo '</form>';
+    echo '</div>';
+
+    // Додаємо JavaScript для обробки натискання кнопки
+    echo '
+    <script type="text/javascript">
+    document.getElementById("translatePostsButton").addEventListener("click", function(e) {
+        e.preventDefault();
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "' . admin_url('admin-ajax.php') . '", true);
+        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+        xhr.onreadystatechange = function() {
+            if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                alert(this.responseText);
+            }
+        }
+        xhr.send("action=translatePosts");
+    });
+    </script>
+    ';
+}
+
+add_action('wp_ajax_translatePosts', 'translate_posts');
 
 ?>
