@@ -62,7 +62,6 @@ function mt_section_text() {
     echo '<p>Enter your settings here.</p>';
 }
 
-add_action('admin_init', 'pluginSettingsPage');
 function pluginSettingsPage() {
     if (isset($_POST['analyse_posts'])) {
         analysePosts();
