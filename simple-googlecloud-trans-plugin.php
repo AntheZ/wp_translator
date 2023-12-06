@@ -210,12 +210,6 @@ function detectLanguage($text) {
 }
 
 // lets analyze how many posts we have and their language
-Зрозуміло, ви хочете видалити логування в файл і замість цього виводити повідомлення через AJAX. Ось оновлений код:
-
-PHP
-Код, створений штучним інтелектом. Перевіряйте та використовуйте обережно. Додаткові відомості про запитання й відповіді.
-
-// lets analyze how many posts we have and their language
 function analysePosts() {
     global $wpdb;
 
