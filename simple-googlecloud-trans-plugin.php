@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.20
+Version: 0.21
 Author: AntheZ
 */
 
@@ -28,10 +28,10 @@ function mt_activate() {
 }
 
 // Add a new submenu under Settings
+add_action('admin_menu', 'mt_add_pages');
 function mt_add_pages() {
     add_options_page(__('Simple GC Translator','menu-test'), __('Simple GC Translator','menu-test'), 'manage_options', 'translationhandle', 'mt_settings_page');
 }
-add_action('admin_menu', 'mt_add_pages');
 
 function mt_settings_page() {
     echo "<h2>" . __( 'SGC Translation Settings', 'menu-test' ) . "</h2>";
@@ -103,8 +103,6 @@ function pluginSettingsPage() {
     ';
 }
 
-add_action('wp_ajax_analysePosts', 'analysePosts');
-
 // Display and fill the website language form field
 function mt_setting_website_language_code() {
     // get option 'website_language_code' value from the database
@@ -154,9 +152,9 @@ $valid_language_codes = array("af", "sq", "am", "ar", "hy", "as", "ay", "az", "b
 }
 
 // Connect to Google Cloud Translation API and translate the posts
+add_action('wp_ajax_translatePosts', 'translate_posts');
 function translate_posts() {
     global $wpdb;
-
     // Отримуємо мову перекладу та мову веб-сайту з налаштувань
     $options = get_option( 'mt_options' );
     $translation_language_code = $options['translation_language_code'];
@@ -227,10 +225,8 @@ function detectLanguage($text) {
     // Обмежуємо текст до перших 50 слів
     $words = explode(' ', $text);
     $text = implode(' ', array_slice($words, 0, 50));
-
     // Видаляємо HTML з тексту
     $text = wp_strip_all_tags($text);
-
     // Набір унікальних слів для кожної мови
     $ukrainianWords = array('і', 'ї', 'є', 'ґ');
     $russianWords = array('ы', 'э', 'ё', 'й');
@@ -255,18 +251,15 @@ function detectLanguage($text) {
 }
 
 // Давайте проаналізуємо скільки саме у нас статей, та їх мову. Але зробимо це безпечно пачками по Х штук
+add_action('wp_ajax_analysePosts', 'analysePosts');
 function analysePosts() {
     global $wpdb;
-
     // Встановлюємо кількість статей для обробки за один раз. Потрібно не забути винести цю змінну в налаштування плагіна.
     $batch_size = 100; 
-
     // Отримуємо кількість всіх статей
     $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}posts WHERE post_type = 'post'");
-
     // Розраховуємо кількість партій
     $batches = ceil($total_posts / $batch_size);
-
     $start_time = microtime(true);
 
     for ($i = 0; $i < $batches; $i++) {
@@ -337,7 +330,5 @@ function mt_setting_translate_button() {
     </script>
     ';
 }
-
-add_action('wp_ajax_translatePosts', 'translate_posts');
 
 ?>
