@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.15
+Version: 0.16
 Author: AntheZ
 */
 
@@ -11,10 +11,16 @@ function mt_activate() {
     global $wpdb;
     $charset_collate = $wpdb->get_charset_collate();
 
-    $sql = "CREATE TABLE {$wpdb->prefix}trans_posts LIKE {$wpdb->prefix}posts;
-            CREATE TABLE {$wpdb->prefix}trans_postmeta LIKE {$wpdb->prefix}postmeta;
-            CREATE TABLE {$wpdb->prefix}bak_posts LIKE {$wpdb->prefix}posts;
-            CREATE TABLE {$wpdb->prefix}bak_postmeta LIKE {$wpdb->prefix}postmeta;";
+    $sql = "DROP TABLE IF EXISTS {$wpdb->prefix}sgct_trans_posts;
+            DROP TABLE IF EXISTS {$wpdb->prefix}sgct_bak_posts;
+            DROP TABLE IF EXISTS {$wpdb->prefix}sgct_analysed_posts;
+            CREATE TABLE {$wpdb->prefix}sgct_trans_posts LIKE {$wpdb->prefix}posts;
+            CREATE TABLE {$wpdb->prefix}sgct_bak_posts LIKE {$wpdb->prefix}posts;
+            CREATE TABLE {$wpdb->prefix}sgct_analysed_posts (
+                post_id mediumint(9) NOT NULL,
+                language_code varchar(2) DEFAULT '' NOT NULL,
+                PRIMARY KEY  (post_id)
+            ) $charset_collate;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
@@ -211,20 +217,6 @@ function detectLanguage($text) {
 function analysePosts() {
     global $wpdb;
 
-    // Створюємо нову таблицю
-    $table_name = $wpdb->prefix . 'sgct_analysed_posts';
-    $charset_collate = $wpdb->get_charset_collate();
-
-    $sql = "CREATE TABLE $table_name (
-        post_id mediumint(9) NOT NULL,
-        meta_key varchar(255) DEFAULT '' NOT NULL,
-        language_code varchar(2) DEFAULT '' NOT NULL,
-        PRIMARY KEY  (post_id)
-    ) $charset_collate;";
-
-    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-    dbDelta($sql);
-
     // Отримуємо перші 100 статей
     $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE post_type = 'post' LIMIT 100");
 
@@ -234,20 +226,14 @@ function analysePosts() {
         // Визначаємо мову статті
         $language_code = detectLanguage($post->post_content);
 
-        // Отримуємо meta_key для цієї статті
-        $meta_keys = $wpdb->get_col($wpdb->prepare("SELECT meta_key FROM {$wpdb->prefix}postmeta WHERE post_id = %d", $post->ID));
-
-        foreach ($meta_keys as $meta_key) {
-            // Додаємо дані до нової таблиці
-            $wpdb->insert(
-                $table_name,
-                array(
-                    'post_id' => $post->ID,
-                    'meta_key' => $meta_key,
-                    'language_code' => $language_code
-                )
-            );
-        }
+        // Додаємо дані до нової таблиці
+        $wpdb->insert(
+            "{$wpdb->prefix}sgct_analysed_posts",
+            array(
+                'post_id' => $post->ID,
+                'language_code' => $language_code
+            )
+        );
     }
 
     $end_time = microtime(true);
