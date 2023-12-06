@@ -157,13 +157,14 @@ $valid_language_codes = array("af", "sq", "am", "ar", "hy", "as", "ay", "az", "b
 function translate_posts() {
     global $wpdb;
 
-    // Отримуємо мову перекладу з налаштувань
+    // Отримуємо мову перекладу та мову веб-сайту з налаштувань
     $options = get_option( 'mt_options' );
     $translation_language_code = $options['translation_language_code'];
+    $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
 
-    // Отримуємо всі статті з таблиці sgct_analysed_posts, які мають language_code ru
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = 'ru'");
+    // Отримуємо всі статті з таблиці sgct_analysed_posts, які мають language_code, що відповідає мові веб-сайту
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code'");
 
     foreach ($posts as $post) {
         // Отримуємо оригінальну статтю з таблиці wp_posts
