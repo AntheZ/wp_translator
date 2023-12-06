@@ -46,7 +46,8 @@ function mt_admin_init(){
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
-    pluginSettingsPage();
+    add_settings_section('mt_main_analyse', 'Additional Settings', 'mt_section_text', 'translationhandle');
+    add_settings_field('mt_analyse_button', 'Analyse Posts', 'pluginSettingsPage', 'translationhandle', 'mt_main_analyse');
 }
 
 function mt_plugin_action_links($links) {
@@ -68,7 +69,6 @@ function pluginSettingsPage() {
         echo '<div class="updated"><p>Аналіз завершено</p></div>';
     }
 
-    echo '<h1>Налаштування плагіну</h1>';
     echo '<form method="post">';
     echo '<input type="submit" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
     echo '</form>';
