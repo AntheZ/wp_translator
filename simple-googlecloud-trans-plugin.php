@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.16
+Version: 0.17
 Author: AntheZ
 */
 
@@ -18,6 +18,7 @@ function mt_activate() {
             CREATE TABLE {$wpdb->prefix}sgct_bak_posts LIKE {$wpdb->prefix}posts;
             CREATE TABLE {$wpdb->prefix}sgct_analysed_posts (
                 post_id mediumint(9) NOT NULL,
+                post_title text NOT NULL,
                 language_code varchar(2) DEFAULT '' NOT NULL,
                 PRIMARY KEY  (post_id)
             ) $charset_collate;";
@@ -231,6 +232,7 @@ function analysePosts() {
             "{$wpdb->prefix}sgct_analysed_posts",
             array(
                 'post_id' => $post->ID,
+                'post_title' => $post->post_title,
                 'language_code' => $language_code
             )
         );
