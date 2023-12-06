@@ -3,7 +3,7 @@
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
 Version: 0.10
-Author: Anton Zanizdra
+Author: AntheZ
 */
 
 register_activation_hook(__FILE__, 'mt_activate');
