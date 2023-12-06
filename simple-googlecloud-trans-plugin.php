@@ -89,7 +89,7 @@ function pluginSettingsPage() {
         xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
         xhr.onreadystatechange = function() {
             if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
-                alert("Аналіз завершено");
+                alert(this.responseText);
             }
         }
         xhr.send("action=analysePosts");
@@ -259,25 +259,5 @@ function analysePosts() {
     echo "Аналіз завершено. Оброблено " . count($posts) . " статей. Витрачено часу " . $execution_time . " секунд.";
     wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
 }
-
-add_action('wp_ajax_analysePosts', 'analysePosts');
-
-// Додаємо JavaScript для обробки натискання кнопки
-echo '
-<script type="text/javascript">
-document.getElementById("analysePostsButton").addEventListener("click", function(e) {
-    e.preventDefault();
-    var xhr = new XMLHttpRequest();
-    xhr.open("POST", "' . admin_url('admin-ajax.php') . '", true);
-    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-    xhr.onreadystatechange = function() {
-        if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
-            alert(this.responseText);
-        }
-    }
-    xhr.send("action=analysePosts");
-});
-</script>
-';
 
 ?>
