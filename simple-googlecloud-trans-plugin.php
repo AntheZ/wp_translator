@@ -29,6 +29,8 @@ add_action('admin_menu', 'mt_add_pages');
 function mt_settings_page() {
     echo "<h2>" . __( 'SGC Translation Settings', 'menu-test' ) . "</h2>";
     echo '<form action="options.php" method="post">';
+    settings_fields('mt_options');
+
     if (isset($_POST['analyse_posts'])) {
         analysePosts();
         echo '<div class="updated"><p>Аналіз завершено</p></div>';
@@ -37,7 +39,7 @@ function mt_settings_page() {
     echo '<form method="post">';
     echo '<input type="submit" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
     echo '</form>';
-    settings_fields('mt_options');
+    
     do_settings_sections('translationhandle');
     submit_button('Запустити перекладач');
     submit_button('Використати переклад');
