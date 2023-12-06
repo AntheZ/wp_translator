@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.12
+Version: 0.13
 Author: AntheZ
 */
 
@@ -46,6 +46,7 @@ function mt_admin_init(){
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
+    pluginSettingsPage();
 }
 
 function mt_plugin_action_links($links) {
@@ -61,6 +62,7 @@ function mt_section_text() {
     echo '<p>Enter your settings here.</p>';
 }
 
+add_action('admin_init', 'pluginSettingsPage');
 function pluginSettingsPage() {
     if (isset($_POST['analyse_posts'])) {
         analysePosts();
