@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.10
+Version: 0.11
 Author: AntheZ
 */
 
@@ -25,6 +25,17 @@ function mt_add_pages() {
     add_options_page(__('Simple GC Translator','menu-test'), __('Simple GC Translator','menu-test'), 'manage_options', 'translationhandle', 'mt_settings_page');
 }
 add_action('admin_menu', 'mt_add_pages');
+add_action('admin_menu', 'addAnalyseButton');
+
+function addAnalyseButton() {
+    add_menu_page(
+        'Аналіз статей', // Назва сторінки
+        'Аналіз статей', // Текст кнопки меню
+        'manage_options', // Потрібне дозволення
+        'analyse_posts', // Slug сторінки
+        'analysePostsPage' // Функція, яка викликається при натисканні кнопки
+    );
+}
 
 function mt_settings_page() {
     echo "<h2>" . __( 'SGC Translation Settings', 'menu-test' ) . "</h2>";
@@ -59,6 +70,21 @@ add_filter("plugin_action_links_$plugin", 'mt_plugin_action_links' );
 // Draw the section header
 function mt_section_text() {
     echo '<p>Enter your settings here.</p>';
+}
+
+// Display button to start analyzing
+function analysePostsPage() {
+    if (isset($_POST['analyse_posts'])) {
+        analysePosts();
+        echo '<div class="updated"><p>Аналіз завершено</p></div>';
+    }
+
+    echo '<div class="wrap">';
+    echo '<h1>Аналіз статей</h1>';
+    echo '<form method="post">';
+    echo '<input type="submit" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
+    echo '</form>';
+    echo '</div>';
 }
 
 // Display and fill the website language form field
@@ -137,5 +163,93 @@ function use_translated_posts() {
     // Replace the original posts and postmeta tables with the translated ones
     // Log the process
 }
+
+// Detect language code uk or ru on first 50 words of a post
+function detectLanguage($text) {
+    // Обмежуємо текст до перших 50 слів
+    $words = explode(' ', $text);
+    $text = implode(' ', array_slice($words, 0, 50));
+
+    // Видаляємо HTML з тексту
+    $text = wp_strip_all_tags($text);
+
+    // Набір унікальних слів для кожної мови
+    $ukrainianWords = array('і', 'ї', 'є', 'ґ');
+    $russianWords = array('ы', 'э', 'ё', 'й');
+
+    $ukCount = 0;
+    $ruCount = 0;
+
+    // Перевіряємо кількість унікальних слів для кожної мови в тексті
+    foreach ($ukrainianWords as $word) {
+        $ukCount += substr_count($text, $word);
+    }
+
+    foreach ($russianWords as $word) {
+        $ruCount += substr_count($text, $word);
+    }
+
+    // Повертаємо код мови в залежності від того, яка мова має більшу кількість унікальних слів
+    if ($ukCount > $ruCount) {
+        return 'uk';
+    } else {
+        return 'ru';
+    }
+}
+
+// lets analyze how many posts we have and their language
+function analysePosts() {
+    global $wpdb;
+
+    // Створюємо нову таблицю
+    $table_name = $wpdb->prefix . 'sgct_analysed_posts';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        post_id mediumint(9) NOT NULL,
+        meta_key varchar(255) DEFAULT '' NOT NULL,
+        language_code varchar(2) DEFAULT '' NOT NULL,
+        PRIMARY KEY  (post_id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+
+    // Отримуємо перші 100 статей
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE post_type = 'post' LIMIT 100");
+
+    $start_time = microtime(true);
+
+    foreach ($posts as $post) {
+        // Визначаємо мову статті
+        $language_code = detectLanguage($post->post_content);
+
+        // Отримуємо meta_key для цієї статті
+        $meta_keys = $wpdb->get_col($wpdb->prepare("SELECT meta_key FROM {$wpdb->prefix}postmeta WHERE post_id = %d", $post->ID));
+
+        foreach ($meta_keys as $meta_key) {
+            // Додаємо дані до нової таблиці
+            $wpdb->insert(
+                $table_name,
+                array(
+                    'post_id' => $post->ID,
+                    'meta_key' => $meta_key,
+                    'language_code' => $language_code
+                )
+            );
+        }
+    }
+
+    $end_time = microtime(true);
+    $execution_time = $end_time - $start_time;
+
+    // Записуємо результати в файл журналу
+    $log_file = fopen("sgclog.txt", "a");
+    $log_entry = "Оброблено " . count($posts) . " статей - витрачено часу " . $execution_time . " секунд\n";
+    fwrite($log_file, $log_entry);
+    fclose($log_file);
+}
+
+
 
 ?>
