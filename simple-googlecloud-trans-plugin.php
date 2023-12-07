@@ -88,7 +88,6 @@ function pluginSettingsPage() {
 
     // Виводимо форму
     echo '<div class="wrap">';
-    echo '<h1>Налаштування плагіну</h1>';
     echo '<form id="analysePostsForm" method="post">';
     echo '<input type="button" id="analysePostsButton" name="analyse_posts" class="button button-primary" value="Проаналізувати кількість статей" />';
     echo '</form>';
@@ -316,7 +315,6 @@ function mt_setting_translate_button() {
 
     // Виводимо форму
     echo '<div class="wrap">';
-    echo '<h1>Налаштування плагіну</h1>';
     echo '<form id="translatePostsForm" method="post">';
     echo '<input type="button" id="translatePostsButton" name="translate_posts" class="button button-primary" value="Запустити перекладач" />';
     echo '</form>';
