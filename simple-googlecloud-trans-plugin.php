@@ -34,7 +34,7 @@ function mt_add_pages() {
 }
 
 function mt_settings_page() {
-    echo "<h2>" . __( 'Sіmple Google Cloud (SGS) Translation Settings', 'menu-test' ) . "</h2>";
+    echo "<h2>" . __( 'Simple Google Cloud (SGS) Translation Settings', 'menu-test' ) . "</h2>";
     echo '<form action="options.php" method="post">';
     settings_fields('mt_options');
     do_settings_sections('translationhandle');
@@ -45,12 +45,12 @@ function mt_settings_page() {
 add_action('admin_init', 'mt_admin_init');
 function mt_admin_init(){
     register_setting( 'mt_options', 'mt_options', 'mt_validate_options', 'mt_batch_size' );
-    add_settings_section('mt_main', 'Main Settings', 'mt_section_text', 'translationhandle');
+    add_settings_section('mt_main', 'Main Settings', 'mt_section_text_api', 'translationhandle');
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
-    add_settings_section('mt_main_analyse', 'Additional Settings', 'mt_section_text', 'translationhandle');
+    add_settings_section('mt_main_analyse', 'Additional Settings', 'mt_section_text_analyze', 'translationhandle');
     add_settings_field('mt_batch_size', 'Batch Size', 'mt_batch_size_input', 'translationhandle', 'mt_main_analyse');
     add_settings_field('mt_analyse_button', 'Analyse Posts', 'mt_setting_analyse_button', 'translationhandle', 'mt_main_analyse');
-    add_settings_section('mt_main_translate', 'Translation Settings', 'mt_section_text', 'translationhandle');
+    add_settings_section('mt_main_translate', 'Translation Settings', 'mt_section_text_translate', 'translationhandle');
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translate_button', 'Translate Posts', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
@@ -64,9 +64,19 @@ function mt_plugin_action_links($links) {
 $plugin = plugin_basename(__FILE__); 
 add_filter("plugin_action_links_$plugin", 'mt_plugin_action_links' );
 
-// Draw the section header
-function mt_section_text() {
-    echo '<p>Тут колись буде опис</p>';
+// Опис секції по налаштуванню API
+function mt_section_text_api() {
+    echo '<p>Введіть ваш API ключ з доступом до Google Cloud Translation API</p>';
+}
+
+// Опис секції по налаштуванню аналізу
+function mt_section_text_analyze() {
+    echo '<p>Введіть кількість статей для одного пакету, по яким буде визначатись їх мова. По замовчуванню 100</p>';
+}
+
+// Опис секції по налаштуванню перекладу
+function mt_section_text_translate() {
+    echo '<p>Введіть мову статей, які будуть перекладатись, i мову на яку будуть перекладатись</p>';
 }
 
 // Функція для відображення поля вводу для налаштування API
@@ -336,7 +346,7 @@ function mt_setting_translate_button() {
 }
 
 // Use the translated posts
-function use_translated_posts() {
+function mt_use_translated_posts() {
     // Backup the original posts and postmeta tables
     // Replace the original posts and postmeta tables with the translated ones
     // Log the process
