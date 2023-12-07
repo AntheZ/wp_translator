@@ -211,8 +211,8 @@ function detectLanguage($text) {
     $text = wp_strip_all_tags($text);
     // Набір унікальних слів для кожної мови
     $languageWords = array(
-        'uk' => array('і', 'ї', 'є', 'ґ', 'що', 'це', 'на', 'не', 'з', 'до'),
-        'ru' => array('ы', 'э', 'ё', 'й', 'ье', 'что', 'это', 'на', 'не', 'с'),
+        'uk' => array('і', 'ї', 'є', 'ґ', 'що'),
+        'ru' => array('ы', 'э', 'ё', 'й', 'ье', 'что', 'это'),
         'en' => array('the', 'be', 'to', 'of', 'and', 'in', 'that', 'have', 'it', 'is'),
         'es' => array('el', 'la', 'de', 'que', 'y', 'en', 'lo', 'un', 'por', 'con'),
         'fr' => array('le', 'de', 'la', 'et', 'à', 'en', 'que', 'qui', 'nous', 'du'),
