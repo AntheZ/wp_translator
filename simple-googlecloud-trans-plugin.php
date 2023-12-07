@@ -192,7 +192,7 @@ function analysePosts() {
 // Функція для відображення поля вводу для налаштування 'mt_word_limit'
 function mt_word_limit_input() {
     // Отримання поточного значення налаштування 'mt_word_limit'
-    $word_limit = get_option('mt_word_limit', 150); // 150 - значення за замовчуванням
+    $word_limit = get_option('mt_word_limit', 50); // 50 - значення за замовчуванням
 
     // Виведення поля вводу
     echo "<input id='mt_word_limit' name='mt_word_limit' type='number' value='" . esc_attr($word_limit) . "' />";
