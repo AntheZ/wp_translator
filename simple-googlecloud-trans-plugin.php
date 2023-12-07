@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.27
+Version: 0.28
 Author: AntheZ
 */
 
@@ -211,26 +211,34 @@ function detectLanguage($text) {
     $text = wp_strip_all_tags($text);
     // Набір унікальних слів для кожної мови
     $languageWords = array(
-        'uk' => array('і', 'ї', 'є', 'ґ'),
-        'ru' => array('ы', 'э', 'ё', 'й', 'ье'),
-        'en' => array('the', 'be', 'to', 'of', 'and'),
-        'es' => array('el', 'la', 'de', 'que', 'y'),
-        'fr' => array('le', 'de', 'la', 'et', 'à'),
-        'de' => array('der', 'die', 'und', 'in', 'den')
+        'uk' => array('і', 'ї', 'є', 'ґ', 'що', 'це', 'на', 'не', 'з', 'до'),
+        'ru' => array('ы', 'э', 'ё', 'й', 'ье', 'что', 'это', 'на', 'не', 'с'),
+        'en' => array('the', 'be', 'to', 'of', 'and', 'in', 'that', 'have', 'it', 'is'),
+        'es' => array('el', 'la', 'de', 'que', 'y', 'en', 'lo', 'un', 'por', 'con'),
+        'fr' => array('le', 'de', 'la', 'et', 'à', 'en', 'que', 'qui', 'nous', 'du'),
+        'de' => array('der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich')
     );
 
     $counts = array();
 
-    // Перевіряємо кількість унікальних слів для кожної мови в тексті
-    foreach ($languageWords as $code => $words) {
-        $counts[$code] = 0;
-        foreach ($words as $word) {
-            $counts[$code] += substr_count($text, $word);
-        }
+   // Перевіряємо кількість унікальних слів для кожної мови в тексті
+   foreach ($languageWords as $code => $words) {
+    $counts[$code] = 0;
+    foreach ($words as $word) {
+        $counts[$code] += substr_count($text, $word);
     }
+}
 
-    // Повертаємо код мови з найбільшою кількістю унікальних слів
-    return array_search(max($counts), $counts);
+// Перевіряємо кількість кириличних символів в тексті
+$cyrillicCount = preg_match_all('/[А-Яа-яЁёІіЇїЄєҐґ]/u', $text);
+
+// Якщо більшість символів в тексті - це кирилиця, припускаємо, що текст написано українською або російською мовою
+if ($cyrillicCount > strlen($text) / 2) {
+    return $counts['uk'] > $counts['ru'] ? 'uk' : 'ru';
+}
+
+// Повертаємо код мови з найбільшою кількістю унікальних слів
+return array_search(max($counts), $counts);
 }
 
 // Налаштування кнопки Аналізу статей
