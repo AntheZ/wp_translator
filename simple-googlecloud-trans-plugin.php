@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.25
+Version: 0.26
 Author: AntheZ
 */
 
@@ -44,11 +44,12 @@ function mt_settings_page() {
 // Register and define the settings
 add_action('admin_init', 'mt_admin_init');
 function mt_admin_init(){
-    register_setting( 'mt_options', 'mt_options', 'mt_validate_options', 'mt_batch_size' );
+    register_setting( 'mt_options', 'mt_options', 'mt_validate_options', 'mt_batch_size', 'mt_word_limit' );
     add_settings_section('mt_main', 'Main Settings', 'mt_section_text_api', 'translationhandle');
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
     add_settings_section('mt_main_analyse', 'Additional Settings', 'mt_section_text_analyze', 'translationhandle');
     add_settings_field('mt_batch_size', 'Batch Size', 'mt_batch_size_input', 'translationhandle', 'mt_main_analyse');
+    add_settings_field('mt_word_limit', 'Word Limit for Language Detection', 'mt_word_limit_input', 'translationhandle', 'mt_main_analyse');
     add_settings_field('mt_analyse_button', 'Analyse Posts', 'mt_setting_analyse_button', 'translationhandle', 'mt_main_analyse');
     add_settings_field('sgct_analyse_stats', 'Analyse Stats', 'sgct_analyse_stats', 'translationhandle', 'mt_main_analyse');
     add_settings_section('mt_main_translate', 'Translation Settings', 'mt_section_text_translate', 'translationhandle');
@@ -74,7 +75,7 @@ function mt_section_text_api() {
 
 // Опис секції по налаштуванню аналізу
 function mt_section_text_analyze() {
-    echo '<p>Введіть кількість статей для одного пакету, по яким буде визначатись їх мова. По замовчуванню 100</p>';
+    echo '<p>Введіть кількість статей для аналізу за один раз (краще менше, для зменшення навантаження), та кількість слів на основі, яких буде визначено мову (чим більше, тим краще точність, але і більше навантаження. Введіть 0 - якщо не потрібно обмежувати кількість слів для аналізу)</p>';
 }
 
 // Опис секції по налаштуванню перекладу
@@ -190,9 +191,13 @@ function analysePosts() {
 
 // Функція для визначення мови в тексту без залучення сторонніх API
 function detectLanguage($text) {
-    // Обмежуємо текст до перших 150 слів
-    $words = explode(' ', $text);
-    $text = implode(' ', array_slice($words, 0, 150));
+    // Отримуємо значення обмеження кількості слів з налаштувань
+    $word_limit = get_option('mt_word_limit', 50); // 50 - значення за замовчуванням
+    // Обмежуємо текст до перших $word_limit слів, якщо $word_limit не дорівнює 0
+    if ($word_limit != 0) {
+        $words = explode(' ', $text);
+        $text = implode(' ', array_slice($words, 0, $word_limit));
+    }
     // Видаляємо HTML з тексту
     $text = wp_strip_all_tags($text);
     // Набір унікальних слів для кожної мови
