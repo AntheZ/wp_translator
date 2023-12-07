@@ -190,15 +190,15 @@ function analysePosts() {
 
 // Функція для визначення мови в тексту без залучення сторонніх API
 function detectLanguage($text) {
-    // Обмежуємо текст до перших 100 слів
+    // Обмежуємо текст до перших 150 слів
     $words = explode(' ', $text);
-    $text = implode(' ', array_slice($words, 0, 100));
+    $text = implode(' ', array_slice($words, 0, 150));
     // Видаляємо HTML з тексту
     $text = wp_strip_all_tags($text);
     // Набір унікальних слів для кожної мови
     $languageWords = array(
         'uk' => array('і', 'ї', 'є', 'ґ'),
-        'ru' => array('ы', 'э', 'ё', 'й'),
+        'ru' => array('ы', 'э', 'ё', 'й', 'ье'),
         'en' => array('the', 'be', 'to', 'of', 'and'),
         'es' => array('el', 'la', 'de', 'que', 'y'),
         'fr' => array('le', 'de', 'la', 'et', 'à'),
