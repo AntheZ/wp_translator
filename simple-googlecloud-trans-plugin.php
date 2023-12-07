@@ -54,7 +54,7 @@ function mt_admin_init(){
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translate_button', 'Translate Posts', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
-    add_settings_section('sgct_tables_cleaner', 'SGCT Tables cleaner', 'sgct_section_text', 'translationhandle');
+    add_settings_section('sgct_tables_cleaner', 'Tables Cleaning Settings', 'sgct_section_text', 'translationhandle');
     add_settings_field('sgct_clean_tables_button', 'Clean Tables', 'sgct_clean_tables_button', 'translationhandle', 'sgct_tables_cleaner');
 }
 
