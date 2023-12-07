@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.23
+Version: 0.24
 Author: AntheZ
 */
 
@@ -180,7 +180,7 @@ function analysePosts() {
     wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
 }
 
-// Detect language code uk or ru on first 50 words of a post
+// Функці для визначення мови в тексту без залучення сторонніх API
 function detectLanguage($text) {
     // Обмежуємо текст до перших 50 слів
     $words = explode(' ', $text);
@@ -188,26 +188,27 @@ function detectLanguage($text) {
     // Видаляємо HTML з тексту
     $text = wp_strip_all_tags($text);
     // Набір унікальних слів для кожної мови
-    $ukrainianWords = array('і', 'ї', 'є', 'ґ');
-    $russianWords = array('ы', 'э', 'ё', 'й');
-    $ukCount = 0;
-    $ruCount = 0;
+    $languageWords = array(
+        'uk' => array('і', 'ї', 'є', 'ґ'),
+        'ru' => array('ы', 'э', 'ё', 'й'),
+        'en' => array('the', 'be', 'to', 'of', 'and'),
+        'es' => array('el', 'la', 'de', 'que', 'y'),
+        'fr' => array('le', 'de', 'la', 'et', 'à'),
+        'de' => array('der', 'die', 'und', 'in', 'den')
+    );
+
+    $counts = array();
 
     // Перевіряємо кількість унікальних слів для кожної мови в тексті
-    foreach ($ukrainianWords as $word) {
-        $ukCount += substr_count($text, $word);
+    foreach ($languageWords as $code => $words) {
+        $counts[$code] = 0;
+        foreach ($words as $word) {
+            $counts[$code] += substr_count($text, $word);
+        }
     }
 
-    foreach ($russianWords as $word) {
-        $ruCount += substr_count($text, $word);
-    }
-
-    // Повертаємо код мови в залежності від того, яка мова має більшу кількість унікальних слів
-    if ($ukCount > $ruCount) {
-        return 'uk';
-    } else {
-        return 'ru';
-    }
+    // Повертаємо код мови з найбільшою кількістю унікальних слів
+    return array_search(max($counts), $counts);
 }
 
 // Налаштування кнопки Аналізу статей
