@@ -360,6 +360,7 @@ function sgct_clean_tables() {
     $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_trans_posts");
     $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_bak_posts");
     $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_analysed_posts");
+    echo 'Таблиці успішно очищено.';
     wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
 }
 
