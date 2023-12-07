@@ -50,6 +50,7 @@ function mt_admin_init(){
     add_settings_section('mt_main_analyse', 'Additional Settings', 'mt_section_text_analyze', 'translationhandle');
     add_settings_field('mt_batch_size', 'Batch Size', 'mt_batch_size_input', 'translationhandle', 'mt_main_analyse');
     add_settings_field('mt_analyse_button', 'Analyse Posts', 'mt_setting_analyse_button', 'translationhandle', 'mt_main_analyse');
+    add_settings_field('sgct_analyse_stats', 'Analyse Stats', 'sgct_analyse_stats', 'translationhandle', 'mt_main_analyse');
     add_settings_section('mt_main_translate', 'Translation Settings', 'mt_section_text_translate', 'translationhandle');
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main_translate');
@@ -251,6 +252,27 @@ function mt_setting_analyse_button() {
     });
     </script>
     ';
+}
+
+// Функція для відображення статистики
+function sgct_analyse_stats() {
+    global $wpdb;
+    // Отримуємо кількість записів в таблиці
+    $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}sgct_analysed_posts");
+    // Отримуємо кількість записів для кожної мови
+    $language_counts = $wpdb->get_results("SELECT language_code, COUNT(*) as count FROM {$wpdb->prefix}sgct_analysed_posts GROUP BY language_code", ARRAY_A);
+    // Виводимо статистику
+    echo '<textarea readonly style="width:100%;height:200px;">';
+    echo 'Проаналізовано ' . $total_posts . ' записів.' . "\n";
+    if ($total_posts > 0) {
+        echo 'З них:' . "\n";
+        $i = 1;
+        foreach ($language_counts as $count) {
+            echo $i . '. ' . $count['language_code'] . ' - ' . $count['count'] . "\n";
+            $i++;
+        }
+    }
+    echo '</textarea>';
 }
 
 // Connect to Google Cloud Translation API and translate the posts
