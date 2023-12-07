@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.21
+Version: 0.22
 Author: AntheZ
 */
 
@@ -44,12 +44,13 @@ function mt_settings_page() {
 // Register and define the settings
 add_action('admin_init', 'mt_admin_init');
 function mt_admin_init(){
-    register_setting( 'mt_options', 'mt_options', 'mt_validate_options' );
+    register_setting( 'mt_options', 'mt_options', 'mt_validate_options', 'mt_batch_size' );
     add_settings_section('mt_main', 'Main Settings', 'mt_section_text', 'translationhandle');
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main');
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
     add_settings_section('mt_main_analyse', 'Additional Settings', 'mt_section_text', 'translationhandle');
+    add_settings_field('mt_batch_size', 'Batch Size', 'mt_batch_size_input', 'translationhandle', 'mt_main_analyse');
     add_settings_field('mt_analyse_button', 'Analyse Posts', 'pluginSettingsPage', 'translationhandle', 'mt_main_analyse');
     add_settings_section('mt_main_translate', 'Translation Settings', 'mt_section_text', 'translationhandle');
     add_settings_field('mt_translate_button', 'Translate Posts', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
@@ -66,6 +67,15 @@ add_filter("plugin_action_links_$plugin", 'mt_plugin_action_links' );
 // Draw the section header
 function mt_section_text() {
     echo '<p>Тут колись буде опис</p>';
+}
+
+// Функція для відображення поля вводу для налаштування 'mt_batch_size'
+function mt_batch_size_input() {
+    // Отримання поточного значення налаштування 'mt_batch_size'
+    $batch_size = get_option('mt_batch_size', 100); // 100 - значення за замовчуванням
+
+    // Виведення поля вводу
+    echo "<input id='mt_batch_size' name='mt_batch_size' type='number' value='" . esc_attr($batch_size) . "' />";
 }
 
 function pluginSettingsPage() {
@@ -254,10 +264,10 @@ function detectLanguage($text) {
 add_action('wp_ajax_analysePosts', 'analysePosts');
 function analysePosts() {
     global $wpdb;
-    // Встановлюємо кількість статей для обробки за один раз. Потрібно не забути винести цю змінну в налаштування плагіна.
-    $batch_size = 100; 
-    // Отримуємо кількість всіх статей
-    $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}posts WHERE post_type = 'post'");
+    // Встановлюємо кількість статей для обробки за один раз. 
+    $batch_size = get_option('mt_batch_size', 100); // 100 - значення за замовчуванням
+    // Отримуємо кількість всіх опублікованих статей
+    $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}posts WHERE post_type = 'post' AND post_status = 'publish'");
     // Розраховуємо кількість партій
     $batches = ceil($total_posts / $batch_size);
     $start_time = microtime(true);
@@ -267,7 +277,7 @@ function analysePosts() {
         $offset = $i * $batch_size;
 
         // Отримуємо статті для поточної партії
-        $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE post_type = 'post' LIMIT $offset, $batch_size");
+        $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE post_type = 'post' AND post_status = 'publish' LIMIT $offset, $batch_size");
 
         foreach ($posts as $post) {
             // Визначаємо мову статті
