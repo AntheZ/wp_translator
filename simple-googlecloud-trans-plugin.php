@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.28
+Version: 0.29
 Author: AntheZ
 */
 
@@ -166,8 +166,11 @@ function analysePosts() {
         $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE post_type = 'post' AND post_status = 'publish' LIMIT $offset, $batch_size");
 
         foreach ($posts as $post) {
+            // Об'єднуємо post_title і post_content
+            $text = $post->post_title . ' ' . $post->post_content;
+
             // Визначаємо мову статті
-            $language_code = detectLanguage($post->post_content);
+            $language_code = detectLanguage($text);
 
             // Додаємо дані до нової таблиці
             $wpdb->insert(
