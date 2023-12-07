@@ -265,7 +265,7 @@ function sgct_analyse_stats() {
     echo '<textarea readonly style="width:100%;height:200px;">';
     echo 'Проаналізовано ' . $total_posts . ' записів.' . "\n";
     if ($total_posts > 0) {
-        echo 'З них:' . "\n";
+        echo 'З них виявлено:' . "\n";
         $i = 1;
         foreach ($language_counts as $count) {
             echo $i . '. ' . $count['language_code'] . ' - ' . $count['count'] . "\n";
