@@ -262,7 +262,7 @@ function sgct_analyse_stats() {
     // Отримуємо кількість записів для кожної мови
     $language_counts = $wpdb->get_results("SELECT language_code, COUNT(*) as count FROM {$wpdb->prefix}sgct_analysed_posts GROUP BY language_code", ARRAY_A);
     // Виводимо статистику
-    echo '<textarea readonly style="width:100%;height:200px;">';
+    echo '<textarea readonly style="width:200px;height:200px;">';
     echo 'Проаналізовано ' . $total_posts . ' записів.' . "\n";
     if ($total_posts > 0) {
         echo 'З них виявлено:' . "\n";
