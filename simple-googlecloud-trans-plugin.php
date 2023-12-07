@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.26
+Version: 0.27
 Author: AntheZ
 */
 
@@ -187,6 +187,15 @@ function analysePosts() {
     // Повертаємо результати через AJAX
     echo "Аналіз завершено. Оброблено " . $total_posts . " статей. Витрачено часу " . $execution_time . " секунд.";
     wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
+}
+
+// Функція для відображення поля вводу для налаштування 'mt_word_limit'
+function mt_word_limit_input() {
+    // Отримання поточного значення налаштування 'mt_word_limit'
+    $word_limit = get_option('mt_word_limit', 150); // 150 - значення за замовчуванням
+
+    // Виведення поля вводу
+    echo "<input id='mt_word_limit' name='mt_word_limit' type='number' value='" . esc_attr($word_limit) . "' />";
 }
 
 // Функція для визначення мови в тексту без залучення сторонніх API
