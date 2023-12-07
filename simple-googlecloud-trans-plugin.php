@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.24
+Version: 0.25
 Author: AntheZ
 */
 
@@ -54,6 +54,8 @@ function mt_admin_init(){
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translate_button', 'Translate Posts', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
+    add_settings_section('sgct_tables_cleaner', 'SGCT Tables cleaner', 'sgct_section_text', 'translationhandle');
+    add_settings_field('sgct_clean_tables_button', 'Clean Tables', 'sgct_clean_tables_button', 'translationhandle', 'sgct_tables_cleaner');
 }
 
 function mt_plugin_action_links($links) {
@@ -77,6 +79,11 @@ function mt_section_text_analyze() {
 // Опис секції по налаштуванню перекладу
 function mt_section_text_translate() {
     echo '<p>Введіть мову статей, які будуть перекладатись, i мову на яку будуть перекладатись</p>';
+}
+
+// Опис секції для очищення таблиць
+function sgct_section_text() {
+    echo '<p>Тут можна очистити робочі таблиці плагіну SGCT.</p>';
 }
 
 // Функція для відображення поля вводу для налаштування API
@@ -117,7 +124,7 @@ function mt_setting_translation_language_code() {
 
 // Перевірка правильності вводу даних користувачем
 function mt_validate_options($input) {
-// List of supported languages by Google Cloud Translation API
+// Перелік мов, що підтримується Google Cloud Translation API
 $valid_language_codes = array("af", "sq", "am", "ar", "hy", "as", "ay", "az", "bm", "eu", "be", "bn", "bho", "bs", "bg", "ca", "ceb", "zh-CN", "zh-TW", "co", "hr", "cs", "da", "dv", "doi", "nl", "en", "eo", "et", "ee", "fil", "fi", "fr", "fy", "gl", "ka", "de", "el", "gn", "gu", "ht", "ha", "haw", "he", "hi", "hmn", "hu", "is", "ig", "ilo", "id", "ga", "it", "ja", "jv", "kn", "kk", "km", "rw", "gom", "ko", "kri", "ku", "ckb", "ky", "lo", "la", "lv", "ln", "lt", "lg", "lb", "mk", "mai", "mg", "ms", "ml", "mt", "mi", "mr", "mni-Mtei", "lus", "mn", "my", "ne", "no", "ny", "or", "om", "ps", "fa", "pl", "pt", "pa", "qu", "ro", "ru", "sm", "sa", "gd", "nso", "sr", "st", "sn", "sd", "si", "sk", "sl", "so", "es", "su", "sw", "sv", "tl", "tg", "ta", "tt", "te", "th", "ti", "ts", "tr", "tk", "ak", "uk", "ur", "ug", "uz", "vi", "cy", "xh", "yi", "yo", "zu");
 
     // Check if the language code is in the list of supported languages
@@ -180,7 +187,7 @@ function analysePosts() {
     wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
 }
 
-// Функці для визначення мови в тексту без залучення сторонніх API
+// Функція для визначення мови в тексту без залучення сторонніх API
 function detectLanguage($text) {
     // Обмежуємо текст до перших 50 слів
     $words = explode(' ', $text);
@@ -341,6 +348,44 @@ function mt_setting_translate_button() {
             }
         }
         xhr.send("action=translatePosts");
+    });
+    </script>
+    ';
+}
+
+// Додаємо дію AJAX для очищення таблиць
+add_action('wp_ajax_sgct_clean_tables', 'sgct_clean_tables');
+function sgct_clean_tables() {
+    global $wpdb;
+    $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_trans_posts");
+    $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_bak_posts");
+    $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_analysed_posts");
+    wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
+}
+
+// Функція для відображення кнопки для очищення таблиць
+function sgct_clean_tables_button() {
+    // Виводимо форму
+    echo '<div class="wrap">';
+    echo '<form id="cleanTablesForm" method="post">';
+    echo '<input type="button" id="cleanTablesButton" name="clean_tables" class="button button-primary" value="Clean Tables" />';
+    echo '</form>';
+    echo '</div>';
+
+    // Додаємо JavaScript для обробки натискання кнопки
+    echo '
+    <script type="text/javascript">
+    document.getElementById("cleanTablesButton").addEventListener("click", function(e) {
+        e.preventDefault();
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "' . admin_url('admin-ajax.php') . '", true);
+        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+        xhr.onreadystatechange = function() {
+            if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                alert(this.responseText);
+            }
+        }
+        xhr.send("action=sgct_clean_tables");
     });
     </script>
     ';
