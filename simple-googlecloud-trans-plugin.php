@@ -73,6 +73,11 @@ add_filter("plugin_action_links_$plugin", 'mt_plugin_action_links' );
 // Опис секції по налаштуванню API
 function mt_section_text_api() {
     echo '<p>Введіть ваш API ключ з доступом до Google Cloud Translation API</p>';
+    if (extension_loaded('enchant')) {
+        echo 'Бібліотека Enchant встановлена на цьому сервері.';
+    } else {
+        echo 'Бібліотека Enchant не встановлена на цьому сервері.';
+    }
 }
 
 // Опис секції по налаштуванню аналізу
