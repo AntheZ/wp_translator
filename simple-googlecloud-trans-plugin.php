@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.31
+Version: 0.32
 Author: AntheZ
 */
 
@@ -351,11 +351,9 @@ function translate_posts() {
         );
 
         $counter++;
-
-        if ($counter % 1 == 0) { // Якщо оброблено 1 статтю, оновлюємо сторінку
-            header("Refresh:0");
-        }
     }
+
+    header("Refresh:0"); // Оновлюємо сторінку після обробки всіх статей
 }
 
 // Налаштування кнопки Перекладу статей
