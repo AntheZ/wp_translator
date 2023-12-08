@@ -128,11 +128,10 @@ function mt_setting_translation_language_code() {
 
 // Функція для відображення поля вводу для налаштування кількості статей для перекладу
 function mt_limit_render() {
-    // get option 'mt_limit' value from the database
     $options = get_option('mt_options');
-    $value = $options['mt_limit'];
-    // echo the field
-    echo "<input id='mt_limit' name='mt_options[mt_limit]' type='number' value='$value'>";
+    ?>
+    <input type='number' name='mt_options[mt_limit]' value='<?php echo $options['mt_limit']; ?>'>
+    <?php
 }
 
 // Перевірка правильності вводу даних користувачем
