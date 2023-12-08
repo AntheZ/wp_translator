@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.37
+Version: 0.38
 Author: AntheZ
 */
 
@@ -193,7 +193,7 @@ function mt_word_limit_input() {
     echo "<input id='mt_word_limit' name='mt_word_limit' type='number' value='" . esc_attr($word_limit) . "' />";
 }
 
-// Функція для визначення мови в тексту без залучення сторонніх API
+// Функція для визначення мови в тексті без залучення сторонніх API, використовуючи вбудовану в PHP бібліотеку Enchant
 function detectLanguage($text) {
     // Отримуємо значення обмеження кількості слів з налаштувань
     $word_limit = get_option('mt_word_limit'); // Значення за замовчуванням вже встановлено в функції mt_word_limit_input()
@@ -205,24 +205,30 @@ function detectLanguage($text) {
     }
     // Видаляємо HTML з тексту
     $text = wp_strip_all_tags($text);
-    // Набір унікальних слів для кожної мови
-    $languageWords = array(
-        'uk' => array('і', 'ї', 'є', 'ґ', 'що'),
-        'ru' => array('ы', 'э', 'ё', 'й', 'ье', 'что', 'это'),
-        'en' => array('the', 'be', 'to', 'of', 'and', 'in', 'that', 'have', 'it', 'is'),
-        'es' => array('el', 'la', 'de', 'que', 'y', 'en', 'lo', 'un', 'por', 'con'),
-        'fr' => array('le', 'de', 'la', 'et', 'à', 'en', 'que', 'qui', 'nous', 'du'),
-        'de' => array('der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich')
-    );
 
-    $counts = array();
+    // Створюємо новий брокер enchant
+    $broker = enchant_broker_init();
 
-   // Перевіряємо кількість унікальних слів для кожної мови в тексті
-   foreach ($languageWords as $code => $words) {
-    $counts[$code] = 0;
-    foreach ($words as $word) {
-        $counts[$code] += substr_count($text, $word);
+    // Отримуємо список доступних мов
+    $dicts = enchant_broker_list_dicts($broker);
+    $languages = array();
+    foreach ($dicts as $dict) {
+        $languages[] = $dict['lang'];
     }
+
+    // Перевіряємо кожну мову
+    foreach ($languages as $language) {
+        if (enchant_broker_dict_exists($broker, $language)) {
+            $dict = enchant_broker_request_dict($broker, $language);
+            if (enchant_dict_check($dict, $text)) {
+                // Якщо текст відповідає мові, повертаємо код мови
+                return $language;
+            }
+        }
+    }
+
+    // Якщо мову не вдалося визначити, повертаємо null
+    return null;
 }
 
 // Перевіряємо кількість кириличних символів в тексті
