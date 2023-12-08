@@ -128,10 +128,11 @@ function mt_setting_translation_language_code() {
 
 // Функція для відображення поля вводу для налаштування кількості статей для перекладу
 function mt_limit_render() {
+    // get option 'mt_limit' value from the database
     $options = get_option('mt_options');
-    ?>
-    <input type='number' name='mt_options[mt_limit]' value='<?php echo $options['mt_limit']; ?>'>
-    <?php
+    $value = $options['mt_limit'];
+    // echo the field
+    echo "<input id='mt_limit' name='mt_options[mt_limit]' type='number' value='$value'>";
 }
 
 // Перевірка правильності вводу даних користувачем
@@ -338,7 +339,7 @@ function translate_posts() {
     $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
     $limit = floatval($options['mt_limit']); // Отримуємо ліміт на кількість статей для перекладу з налаштувань та конвертуємо значення ліміту в дійсне число
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT '$limit'"); 
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT $limit "); 
 
     foreach ($posts as $post) {
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
