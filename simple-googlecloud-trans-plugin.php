@@ -289,6 +289,17 @@ function sgct_analyse_stats() {
     }
 }
 
+
+function translate_text($text, $target_language, $website_language, $api_key) {
+    $url = "https://translation.googleapis.com/language/translate/v2?key=$api_key&q=" . urlencode($text) . "&source=$website_language&target=$target_language";
+    $response = wp_remote_get($url);
+    if ( is_wp_error( $response ) ) {
+        return $text; // якщо є помилка, повертаємо оригінальний текст
+    }
+    $response_body = json_decode(wp_remote_retrieve_body($response), true);
+    return $response_body['data']['translations'][0]['translatedText'];
+}
+
 // Connect to Google Cloud Translation API and translate the posts
 add_action('wp_ajax_translatePosts', 'translate_posts');
 function translate_posts() {
@@ -347,25 +358,6 @@ function translate_posts() {
     }
 }
 
-function translate_text($text, $target_language, $website_language, $api_key) {
-    $url = "https://translation.googleapis.com/language/translate/v2?key=$api_key&q=" . urlencode($text) . "&source=$website_language&target=$target_language";
-    $response = wp_remote_get($url);
-    if ( is_wp_error( $response ) ) {
-        return $text; // якщо є помилка, повертаємо оригінальний текст
-    }
-    $response_body = json_decode(wp_remote_retrieve_body($response), true);
-    return $response_body['data']['translations'][0]['translatedText'];
-}
-
-function mt_setting_translation_progress() {
-    global $wpdb;
-
-    $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}sgct_analysed_posts");
-    $translated_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}sgct_trans_posts");
-
-    echo "<p>Translated posts: $translated_posts / $total_posts</p>";
-}
-
 // Налаштування кнопки Перекладу статей
 function mt_setting_translate_button() {
     // Перевіряємо, чи була натиснута кнопка
@@ -395,13 +387,25 @@ function mt_setting_translate_button() {
         xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
         xhr.onreadystatechange = function() {
             if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                // Відображаємо повідомлення в діалоговому вікні
                 alert(this.responseText);
+                // Оновлюємо сторінку після закриття діалогового вікна
+                location.reload();
             }
         }
         xhr.send("action=translatePosts");
     });
     </script>
     ';
+}
+
+function mt_setting_translation_progress() {
+    global $wpdb;
+
+    $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}sgct_analysed_posts");
+    $translated_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}sgct_trans_posts");
+
+    echo "<p>Translated posts: $translated_posts / $total_posts</p>";
 }
 
 // Додаємо дію AJAX для очищення таблиць
