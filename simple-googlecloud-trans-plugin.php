@@ -209,8 +209,12 @@ function detectLanguage($text) {
     // Створюємо новий брокер enchant
     $broker = enchant_broker_init();
 
-    // Список доступних мов
-    $languages = array('uk', 'ru', 'en', 'es', 'fr', 'de');
+    // Отримуємо список доступних мов
+    $dicts = enchant_broker_list_dicts($broker);
+    $languages = array();
+    foreach ($dicts as $dict) {
+        $languages[] = $dict['lang'];
+    }
 
     // Перевіряємо кожну мову
     foreach ($languages as $language) {
