@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.30
+Version: 0.31
 Author: AntheZ
 */
 
@@ -278,7 +278,6 @@ function sgct_analyse_stats() {
     // Отримуємо кількість записів для кожної мови
     $language_counts = $wpdb->get_results("SELECT language_code, COUNT(*) as count FROM {$wpdb->prefix}sgct_analysed_posts GROUP BY language_code", ARRAY_A);
     // Виводимо статистику
-    echo '<textarea readonly style="width:200px;height:200px;">';
     echo 'Проаналізовано ' . $total_posts . ' записів.' . "\n";
     if ($total_posts > 0) {
         echo 'З них виявлено:' . "\n";
@@ -288,7 +287,6 @@ function sgct_analyse_stats() {
             $i++;
         }
     }
-    echo '</textarea>';
 }
 
 // Connect to Google Cloud Translation API and translate the posts
@@ -302,7 +300,7 @@ function translate_posts() {
     $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
 
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT 50"); // Обмежуємо кількість статей до 50
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT 10"); // Обмежуємо кількість статей до 50
 
     $counter = 0; // Лічильник для відслідковування кількості оброблених статей
 
@@ -343,7 +341,7 @@ function translate_posts() {
 
         $counter++;
 
-        if ($counter % 10 == 0) { // Якщо оброблено 10 статей, оновлюємо сторінку
+        if ($counter % 1 == 0) { // Якщо оброблено 1 статтю, оновлюємо сторінку
             header("Refresh:0");
         }
     }
