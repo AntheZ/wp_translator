@@ -12,7 +12,6 @@ function mt_activate() {
     $charset_collate = $wpdb->get_charset_collate();
 
     $sql = "DROP TABLE IF EXISTS {$wpdb->prefix}sgct_trans_posts;
-            DROP TABLE IF EXISTS {$wpdb->prefix}sgct_bak_posts;
             DROP TABLE IF EXISTS {$wpdb->prefix}sgct_analysed_posts;
             CREATE TABLE {$wpdb->prefix}sgct_trans_posts LIKE {$wpdb->prefix}posts;
             CREATE TABLE {$wpdb->prefix}sgct_bak_posts LIKE {$wpdb->prefix}posts;
@@ -20,6 +19,7 @@ function mt_activate() {
                 post_id mediumint(9) NOT NULL,
                 post_title text NOT NULL,
                 language_code varchar(2) DEFAULT '' NOT NULL,
+                is_already_translated tinyint(1) DEFAULT 0 NOT NULL,
                 PRIMARY KEY  (post_id)
             ) $charset_collate;";
 
@@ -427,7 +427,6 @@ add_action('wp_ajax_sgct_clean_tables', 'sgct_clean_tables');
 function sgct_clean_tables() {
     global $wpdb;
     $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_trans_posts");
-    $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_bak_posts");
     $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}sgct_analysed_posts");
     echo 'Таблиці успішно очищено.';
     wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
