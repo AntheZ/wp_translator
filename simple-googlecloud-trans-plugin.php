@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.34
+Version: 0.35
 Author: AntheZ
 */
 
@@ -290,15 +290,35 @@ function sgct_analyse_stats() {
     }
 }
 
+function split_text($text, $size = 4999) {
+    $parts = [];
+    while (strlen($text) > 0) {
+        if (strlen($text) > $size) {
+            $part = substr($text, 0, $size);
+            $last_space = strrpos($part, ' ');
+            $parts[] = substr($part, 0, $last_space);
+            $text = substr($text, $last_space);
+        } else {
+            $parts[] = $text;
+            $text = '';
+        }
+    }
+    return $parts;
+}
 
 function translate_text($text, $target_language, $website_language, $api_key) {
-    $url = "https://translation.googleapis.com/language/translate/v2?key=$api_key&q=" . urlencode($text) . "&source=$website_language&target=$target_language";
-    $response = wp_remote_get($url);
-    if ( is_wp_error( $response ) ) {
-        return $text; // якщо є помилка, повертаємо оригінальний текст
+    $translated_text = '';
+    $text_parts = split_text($text);
+    foreach ($text_parts as $part) {
+        $url = "https://translation.googleapis.com/language/translate/v2?key=$api_key&q=" . urlencode($part) . "&source=$website_language&target=$target_language";
+        $response = wp_remote_get($url);
+        if ( is_wp_error( $response ) ) {
+            return $text; // якщо є помилка, повертаємо оригінальний текст
+        }
+        $response_body = json_decode(wp_remote_retrieve_body($response), true);
+        $translated_text .= $response_body['data']['translations'][0]['translatedText'];
     }
-    $response_body = json_decode(wp_remote_retrieve_body($response), true);
-    return $response_body['data']['translations'][0]['translatedText'];
+    return $translated_text;
 }
 
 // Connect to Google Cloud Translation API and translate the posts
