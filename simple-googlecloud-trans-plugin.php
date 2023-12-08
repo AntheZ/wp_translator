@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.33
+Version: 0.34
 Author: AntheZ
 */
 
@@ -186,7 +186,7 @@ function analysePosts() {
 // Функція для відображення поля вводу для налаштування 'mt_word_limit'
 function mt_word_limit_input() {
     // Отримання поточного значення налаштування 'mt_word_limit'
-    $word_limit = get_option('mt_word_limit', 50); // 50 - значення за замовчуванням
+    $word_limit = get_option('mt_word_limit', 0); // 0 - значення за замовчуванням
 
     // Виведення поля вводу
     echo "<input id='mt_word_limit' name='mt_word_limit' type='number' value='" . esc_attr($word_limit) . "' />";
@@ -329,8 +329,8 @@ function translate_posts() {
                 'post_author' => $original_post->post_author,
                 'post_date' => $original_post->post_date,
                 'post_date_gmt' => $original_post->post_date_gmt,
-                'post_content' => $translated_content, // використовуємо перекладений контент
-                'post_title' => $translated_title,
+                'post_content' => $translated_content, // використовуємо перекладений content
+                'post_title' => $translated_title, // використовуємо перекладений title
                 'post_excerpt' => $original_post->post_excerpt,
                 'post_status' => $original_post->post_status,
                 'comment_status' => $original_post->comment_status,
@@ -339,8 +339,8 @@ function translate_posts() {
                 'post_name' => $original_post->post_name,
                 'to_ping' => $original_post->to_ping,
                 'pinged' => $original_post->pinged,
-                'post_modified' => $original_post->post_modified,
-                'post_modified_gmt' => $original_post->post_modified_gmt,
+                'post_modified' => current_time('mysql'), // використовуємо поточний час
+                'post_modified_gmt' => current_time('mysql', 1), // використовуємо поточний час в GMT
                 'post_content_filtered' => $original_post->post_content_filtered,
                 'post_parent' => $original_post->post_parent,
                 'guid' => $original_post->guid,
