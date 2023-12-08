@@ -186,9 +186,6 @@ function analysePosts() {
 
     $end_time = microtime(true);
     $execution_time = $end_time - $start_time;
-
-    header("Refresh:0"); // Оновлюємо сторінку
-
     echo "Аналіз завершено. Оброблено " . $total_posts . " статей. Витрачено часу " . $execution_time . " секунд.";
     wp_die();
 }
@@ -342,13 +339,13 @@ function translate_posts() {
     $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
     $limit = floatval($options['mt_limit']); // Отримуємо ліміт на кількість статей для перекладу з налаштувань та конвертуємо значення ліміту в дійсне число
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT '$limit'"); 
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT 10"); 
 
     foreach ($posts as $post) {
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
 
         $translated_title = translate_text($original_post->post_title, $translation_language_code, $website_language_code, $api_key);
-        $translated_content = translate_text($original_post->post_content, $translation_language_code, $website_language_code, $api_key); // Перекладаємо post_content
+        $translated_content = translate_text($original_post->post_content, $translation_language_code, $website_language_code, $api_key);
 
         $wpdb->insert(
             "{$wpdb->prefix}sgct_trans_posts",
@@ -379,8 +376,6 @@ function translate_posts() {
             )
         );
     }
-
-    header("Refresh:0"); // Оновлюємо сторінку після обробки всіх статей
 }
 
 // Налаштування кнопки Перекладу статей
