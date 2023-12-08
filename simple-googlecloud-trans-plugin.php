@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.36
+Version: 0.37
 Author: AntheZ
 */
 
@@ -332,8 +332,9 @@ function translate_posts() {
     $translation_language_code = $options['translation_language_code'];
     $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
-   // $limit = floatval($options['mt_limit']); // Отримуємо ліміт на кількість статей для перекладу з налаштувань та конвертуємо значення ліміту в дійсне число
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT 10 "); 
+
+    // Вибираємо лише неперекладені статті
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' AND is_already_translated = 0 LIMIT 10 "); 
 
     foreach ($posts as $post) {
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
@@ -368,6 +369,14 @@ function translate_posts() {
                 'post_mime_type' => $original_post->post_mime_type,
                 'comment_count' => $original_post->comment_count
             )
+        );
+        // Оновлюємо статус перекладу
+        $wpdb->update(
+            "{$wpdb->prefix}sgct_analysed_posts",
+            array(
+                'is_already_translated' => 1
+            ),
+            array( 'post_id' => $post->post_id )
         );
     }
 }
