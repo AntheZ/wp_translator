@@ -342,7 +342,7 @@ function translate_posts() {
     $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
     $limit = floatval($options['mt_limit']); // Отримуємо ліміт на кількість статей для перекладу з налаштувань та конвертуємо значення ліміту в дійсне число
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT $limit"); 
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT '$limit'"); 
 
     foreach ($posts as $post) {
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
