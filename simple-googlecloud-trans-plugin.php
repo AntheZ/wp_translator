@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.29
+Version: 0.30
 Author: AntheZ
 */
 
@@ -56,6 +56,7 @@ function mt_admin_init(){
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translate_button', 'Translate Posts', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
+    add_settings_field('mt_translation_progress', 'Translation Progress', 'mt_setting_translation_progress', 'translationhandle', 'mt_main_translate');
     add_settings_section('sgct_tables_cleaner', 'Tables Cleaning Settings', 'sgct_section_text', 'translationhandle');
     add_settings_field('sgct_clean_tables_button', 'Clean Tables', 'sgct_clean_tables_button', 'translationhandle', 'sgct_tables_cleaner');
 }
@@ -150,29 +151,18 @@ $valid_language_codes = array("af", "sq", "am", "ar", "hy", "as", "ay", "az", "b
 add_action('wp_ajax_analysePosts', 'analysePosts');
 function analysePosts() {
     global $wpdb;
-    // Встановлюємо кількість статей для обробки за один раз. 
-    $batch_size = get_option('mt_batch_size', 100); // 100 - значення за замовчуванням
-    // Отримуємо кількість всіх опублікованих статей
+    $batch_size = get_option('mt_batch_size', 100);
     $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}posts WHERE post_type = 'post' AND post_status = 'publish'");
-    // Розраховуємо кількість партій
     $batches = ceil($total_posts / $batch_size);
     $start_time = microtime(true);
 
     for ($i = 0; $i < $batches; $i++) {
-        // Обчислюємо зсув для поточної партії
         $offset = $i * $batch_size;
-
-        // Отримуємо статті для поточної партії
         $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE post_type = 'post' AND post_status = 'publish' LIMIT $offset, $batch_size");
 
         foreach ($posts as $post) {
-            // Об'єднуємо post_title і post_content
             $text = $post->post_title . ' ' . $post->post_content;
-
-            // Визначаємо мову статті
             $language_code = detectLanguage($text);
-
-            // Додаємо дані до нової таблиці
             $wpdb->insert(
                 "{$wpdb->prefix}sgct_analysed_posts",
                 array(
@@ -187,9 +177,10 @@ function analysePosts() {
     $end_time = microtime(true);
     $execution_time = $end_time - $start_time;
 
-    // Повертаємо результати через AJAX
+    header("Refresh:0"); // Оновлюємо сторінку
+
     echo "Аналіз завершено. Оброблено " . $total_posts . " статей. Витрачено часу " . $execution_time . " секунд.";
-    wp_die(); // це потрібно, щоб уникнути повернення 0 в кінці відповіді AJAX
+    wp_die();
 }
 
 // Функція для відображення поля вводу для налаштування 'mt_word_limit'
@@ -303,24 +294,24 @@ function sgct_analyse_stats() {
 // Connect to Google Cloud Translation API and translate the posts
 add_action('wp_ajax_translatePosts', 'translate_posts');
 function translate_posts() {
+    set_time_limit(0); // Відключаємо обмеження часу виконання PHP
+
     global $wpdb;
-    // Отримуємо мову перекладу та мову веб-сайту з налаштувань
     $options = get_option( 'mt_options' );
     $translation_language_code = $options['translation_language_code'];
     $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
 
-    // Отримуємо всі статті з таблиці sgct_analysed_posts, які мають language_code, що відповідає мові веб-сайту
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code'");
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT 50"); // Обмежуємо кількість статей до 50
+
+    $counter = 0; // Лічильник для відслідковування кількості оброблених статей
 
     foreach ($posts as $post) {
-        // Отримуємо оригінальну статтю з таблиці wp_posts
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
 
-        // Перекладаємо заголовок статті за допомогою Google Cloud Translation API
         $translated_title = translate_text($original_post->post_title, $translation_language_code, $website_language_code, $api_key);
+        $translated_content = translate_text($original_post->post_content, $translation_language_code, $website_language_code, $api_key); // Перекладаємо post_content
 
-        // Копіюємо всі поля (крім post_title) в таблицю sgct_trans_posts
         $wpdb->insert(
             "{$wpdb->prefix}sgct_trans_posts",
             array(
@@ -328,8 +319,8 @@ function translate_posts() {
                 'post_author' => $original_post->post_author,
                 'post_date' => $original_post->post_date,
                 'post_date_gmt' => $original_post->post_date_gmt,
-                'post_content' => $original_post->post_content,
-                'post_title' => $translated_title, // використовуємо перекладений заголовок
+                'post_content' => $translated_content, // використовуємо перекладений контент
+                'post_title' => $translated_title,
                 'post_excerpt' => $original_post->post_excerpt,
                 'post_status' => $original_post->post_status,
                 'comment_status' => $original_post->comment_status,
@@ -349,6 +340,12 @@ function translate_posts() {
                 'comment_count' => $original_post->comment_count
             )
         );
+
+        $counter++;
+
+        if ($counter % 10 == 0) { // Якщо оброблено 10 статей, оновлюємо сторінку
+            header("Refresh:0");
+        }
     }
 }
 
@@ -360,6 +357,15 @@ function translate_text($text, $target_language, $website_language, $api_key) {
     }
     $response_body = json_decode(wp_remote_retrieve_body($response), true);
     return $response_body['data']['translations'][0]['translatedText'];
+}
+
+function mt_setting_translation_progress() {
+    global $wpdb;
+
+    $total_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}sgct_analysed_posts");
+    $translated_posts = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}sgct_trans_posts");
+
+    echo "<p>Translated posts: $translated_posts / $total_posts</p>";
 }
 
 // Налаштування кнопки Перекладу статей
@@ -444,6 +450,7 @@ function mt_use_translated_posts() {
     // Backup the original posts and postmeta tables
     // Replace the original posts and postmeta tables with the translated ones
     // Log the process
+    // НЕ ЗАБУТИ ЗМІНИТИ ЧАС РЕДАГУВАННЯ СТАТТІ
 }
 
 ?>
