@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.35
+Version: 0.36
 Author: AntheZ
 */
 
@@ -55,6 +55,7 @@ function mt_admin_init(){
     add_settings_section('mt_main_translate', 'Translation Settings', 'mt_section_text_translate', 'translationhandle');
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main_translate');
+    add_settings_field('mt_limit', 'Limit', 'mt_limit_render', 'pluginPage', 'mt_main_translate');
     add_settings_field('mt_translate_button', 'Translate Posts', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_progress', 'Translation Progress', 'mt_setting_translation_progress', 'translationhandle', 'mt_main_translate');
     add_settings_section('sgct_tables_cleaner', 'Tables Cleaning Settings', 'sgct_section_text', 'translationhandle');
@@ -123,6 +124,14 @@ function mt_setting_translation_language_code() {
     $value = $options['translation_language_code'];
     // echo the field
     echo "<input id='mt_translation_language_code' name='mt_options[translation_language_code]' type='text' value='$value' />";
+}
+
+// Функція для відображення поля вводу для налаштування кількості статей для перекладу
+function mt_limit_render() {
+    $options = get_option('mt_options');
+    ?>
+    <input type='number' name='mt_options[mt_limit]' value='<?php echo $options['mt_limit']; ?>'>
+    <?php
 }
 
 // Перевірка правильності вводу даних користувачем
@@ -331,10 +340,8 @@ function translate_posts() {
     $translation_language_code = $options['translation_language_code'];
     $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
-
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT 10"); // Обмежуємо кількість статей до 50
-
-    $counter = 0; // Лічильник для відслідковування кількості оброблених статей
+    $limit = $options['mt_limit']; // Отримуємо ліміт на кількість статей для перекладу з налаштувань
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT $limit"); 
 
     foreach ($posts as $post) {
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
@@ -370,8 +377,6 @@ function translate_posts() {
                 'comment_count' => $original_post->comment_count
             )
         );
-
-        $counter++;
     }
 
     header("Refresh:0"); // Оновлюємо сторінку після обробки всіх статей
