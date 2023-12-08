@@ -55,7 +55,7 @@ function mt_admin_init(){
     add_settings_section('mt_main_translate', 'Translation Settings', 'mt_section_text_translate', 'translationhandle');
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main_translate');
-    add_settings_field('mt_limit', 'Limit', 'mt_limit_render', 'translationhandle', 'mt_main_translate');
+    //add_settings_field('mt_limit', 'Limit', 'mt_limit_render', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translate_button', 'Translate Posts', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_progress', 'Translation Progress', 'mt_setting_translation_progress', 'translationhandle', 'mt_main_translate');
     add_settings_section('sgct_tables_cleaner', 'Tables Cleaning Settings', 'sgct_section_text', 'translationhandle');
@@ -127,12 +127,7 @@ function mt_setting_translation_language_code() {
 }
 
 // Функція для відображення поля вводу для налаштування кількості статей для перекладу
-function mt_limit_render() {
-    $options = get_option('mt_options');
-    ?>
-    <input type='number' name='mt_options[mt_limit]' value='<?php echo $options['mt_limit']; ?>'>
-    <?php
-}
+//function mt_limit_render()
 
 // Перевірка правильності вводу даних користувачем
 function mt_validate_options($input) {
@@ -337,8 +332,8 @@ function translate_posts() {
     $translation_language_code = $options['translation_language_code'];
     $website_language_code = $options['website_language_code'];
     $api_key = $options['api_key'];
-    $limit = floatval($options['mt_limit']); // Отримуємо ліміт на кількість статей для перекладу з налаштувань та конвертуємо значення ліміту в дійсне число
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT $limit "); 
+   // $limit = floatval($options['mt_limit']); // Отримуємо ліміт на кількість статей для перекладу з налаштувань та конвертуємо значення ліміту в дійсне число
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' LIMIT 10 "); 
 
     foreach ($posts as $post) {
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
