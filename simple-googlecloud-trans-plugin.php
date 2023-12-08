@@ -227,18 +227,6 @@ function detectLanguage($text) {
     return null;
 }
 
-// Перевіряємо кількість кириличних символів в тексті
-$cyrillicCount = preg_match_all('/[А-Яа-яЁёІіЇїЄєҐґ]/u', $text);
-
-// Якщо більшість символів в тексті - це кирилиця, припускаємо, що текст написано українською або російською мовою
-if ($cyrillicCount > strlen($text) / 2) {
-    return $counts['uk'] > $counts['ru'] ? 'uk' : 'ru';
-}
-
-// Повертаємо код мови з найбільшою кількістю унікальних слів
-return array_search(max($counts), $counts);
-}
-
 // Налаштування кнопки Аналізу статей
 function mt_setting_analyse_button() {
     // Перевіряємо, чи була натиснута кнопка
