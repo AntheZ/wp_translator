@@ -44,7 +44,7 @@ function mt_settings_page() {
 // Register and define the settings
 add_action('admin_init', 'mt_admin_init');
 function mt_admin_init(){
-    register_setting( 'mt_options', 'mt_options', 'mt_validate_options', 'mt_batch_size', 'mt_word_limit', 'mt_limit_render' );
+    register_setting( 'mt_options', 'mt_options', 'mt_validate_options');
     add_settings_section('mt_main', 'Main Settings', 'mt_section_text_api', 'translationhandle');
     add_settings_field('mt_api_key', 'API Key', 'mt_setting_api_key', 'translationhandle', 'mt_main');
     add_settings_section('mt_main_analyse', 'Additional Settings', 'mt_section_text_analyze', 'translationhandle');
