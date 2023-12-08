@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.32
+Version: 0.33
 Author: AntheZ
 */
 
@@ -195,7 +195,8 @@ function mt_word_limit_input() {
 // Функція для визначення мови в тексту без залучення сторонніх API
 function detectLanguage($text) {
     // Отримуємо значення обмеження кількості слів з налаштувань
-    $word_limit = get_option('mt_word_limit', 50); // 50 - значення за замовчуванням
+    $word_limit = get_option('mt_word_limit'); // Значення за замовчуванням вже встановлено в функції mt_word_limit_input()
+
     // Обмежуємо текст до перших $word_limit слів, якщо $word_limit не дорівнює 0
     if ($word_limit != 0) {
         $words = explode(' ', $text);
