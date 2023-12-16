@@ -213,15 +213,18 @@ function detectLanguage($text) {
     $latin_count = preg_match_all($latin, $text);
     $ideographic_count = preg_match_all($ideographic, $text);
 
+    include 'language_groups/cyrillic.php';
+    include 'language_groups/latin.php';
+    include 'language_groups/ideographic.php';
     // Перевіряємо кількість кирилічних, латинських та ідеографічних літер
     if ($cyrillic_count > $latin_count && $cyrillic_count > $ideographic_count) {
-        include 'language_groups/cyrillic.php';
+        
         $language = detectCyrillic($text);
     } elseif ($latin_count > $cyrillic_count && $latin_count > $ideographic_count) {
-        include 'language_groups/latin.php';
+       
         $language = detectLatin($text);
     } elseif ($ideographic_count > $cyrillic_count && $ideographic_count > $latin_count) {
-        include 'language_groups/ideographic.php';
+        
         $language = detectIdeographic($text);
     } else {
         return null;
