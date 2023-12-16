@@ -202,33 +202,36 @@ function detectLanguage($text) {
     }
     // Видаляємо HTML з тексту
     $text = wp_strip_all_tags($text);
+    // Набір унікальних слів для кожної мови
+    $languageWords = array(
+        'uk' => array('і', 'ї', 'є', 'ґ', 'що'),
+        'ru' => array('ы', 'э', 'ё', 'й', 'ье', 'что', 'это'),
+        'en' => array('the', 'be', 'to', 'of', 'and', 'in', 'that', 'have', 'it', 'is'),
+        'es' => array('el', 'la', 'de', 'que', 'y', 'en', 'lo', 'un', 'por', 'con'),
+        'fr' => array('le', 'de', 'la', 'et', 'à', 'en', 'que', 'qui', 'nous', 'du'),
+        'de' => array('der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich')
+    );
 
-    // Визначаємо групи мов
-    $cyrillic = '/[\p{Cyrillic}]/u';
-    $latin = '/[\p{Latin}]/u';
-    $ideographic = '/[\p{Han}]/u';
+    $counts = array();
 
-    // Рахуємо кількість кирилічних, латинських та ідеографічних літер
-    $cyrillic_count = preg_match_all($cyrillic, $text);
-    $latin_count = preg_match_all($latin, $text);
-    $ideographic_count = preg_match_all($ideographic, $text);
-
-    include 'language_groups/cyrillic.php';
-    include 'language_groups/latin.php';
-    include 'language_groups/ideographic.php';
-    // Перевіряємо кількість кирилічних, латинських та ідеографічних літер
-    if ($cyrillic_count > $latin_count && $cyrillic_count > $ideographic_count) {
-        
-        $language = detectCyrillic($text);
-    } elseif ($latin_count > $cyrillic_count && $latin_count > $ideographic_count) {
-       
-        $language = detectLatin($text);
-    } elseif ($ideographic_count > $cyrillic_count && $ideographic_count > $latin_count) {
-        
-        $language = detectIdeographic($text);
-    } else {
-        return null;
+   // Перевіряємо кількість унікальних слів для кожної мови в тексті
+   foreach ($languageWords as $code => $words) {
+    $counts[$code] = 0;
+    foreach ($words as $word) {
+        $counts[$code] += substr_count($text, $word);
     }
+}
+
+// Перевіряємо кількість кириличних символів в тексті
+$cyrillicCount = preg_match_all('/[А-Яа-яЁёІіЇїЄєҐґ]/u', $text);
+
+// Якщо більшість символів в тексті - це кирилиця, припускаємо, що текст написано українською або російською мовою
+if ($cyrillicCount > strlen($text) / 2) {
+    return $counts['uk'] > $counts['ru'] ? 'uk' : 'ru';
+}
+
+// Повертаємо код мови з найбільшою кількістю унікальних слів
+return array_search(max($counts), $counts);
 }
 
 // Налаштування кнопки Аналізу статей
