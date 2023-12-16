@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.39
+Version: 0.40
 Author: AntheZ
 */
 
@@ -192,6 +192,10 @@ function mt_word_limit_input() {
 
 // Функція для визначення мови в тексті без залучення сторонніх API
 function detectLanguage($text) {
+    // Додаємо ваші файли cyrillic.php та latin.php
+    include 'language_groups/cyrillic.php';
+    include 'language_groups/latin.php';
+
     // Отримуємо значення обмеження кількості слів з налаштувань
     $word_limit = get_option('mt_word_limit'); // Значення за замовчуванням вже встановлено в функції mt_word_limit_input()
 
@@ -202,36 +206,27 @@ function detectLanguage($text) {
     }
     // Видаляємо HTML з тексту
     $text = wp_strip_all_tags($text);
-    // Набір унікальних слів для кожної мови
-    $languageWords = array(
-        'uk' => array('і', 'ї', 'є', 'ґ', 'що'),
-        'ru' => array('ы', 'э', 'ё', 'й', 'ье', 'что', 'это'),
-        'en' => array('the', 'be', 'to', 'of', 'and', 'in', 'that', 'have', 'it', 'is'),
-        'es' => array('el', 'la', 'de', 'que', 'y', 'en', 'lo', 'un', 'por', 'con'),
-        'fr' => array('le', 'de', 'la', 'et', 'à', 'en', 'que', 'qui', 'nous', 'du'),
-        'de' => array('der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich')
-    );
 
-    $counts = array();
+    // Перевіряємо кількість кириличних символів в тексті
+    $cyrillicCount = preg_match_all('/[А-Яа-яЁёІіЇїЄєҐґ]/u', $text);
 
-   // Перевіряємо кількість унікальних слів для кожної мови в тексті
-   foreach ($languageWords as $code => $words) {
-    $counts[$code] = 0;
-    foreach ($words as $word) {
-        $counts[$code] += substr_count($text, $word);
+    // Якщо більшість символів в тексті - це кирилиця, припускаємо, що текст написано українською або російською мовою
+    if ($cyrillicCount > strlen($text) / 2) {
+        // Використовуємо функцію detectCyrillic з cyrillic.php
+        return detectCyrillic($text);
     }
-}
 
-// Перевіряємо кількість кириличних символів в тексті
-$cyrillicCount = preg_match_all('/[А-Яа-яЁёІіЇїЄєҐґ]/u', $text);
+    // Перевіряємо кількість латинських символів в тексті
+    $latinCount = preg_match_all('/[a-zA-Z]/', $text);
 
-// Якщо більшість символів в тексті - це кирилиця, припускаємо, що текст написано українською або російською мовою
-if ($cyrillicCount > strlen($text) / 2) {
-    return $counts['uk'] > $counts['ru'] ? 'uk' : 'ru';
-}
+    // Якщо більшість символів в тексті - це латинські, припускаємо, що текст написано англійською, іспанською, французькою або німецькою мовою
+    if ($latinCount > strlen($text) / 2) {
+        // Використовуємо функцію detectLatin з latin.php
+        return detectLatin($text);
+    }
 
-// Повертаємо код мови з найбільшою кількістю унікальних слів
-return array_search(max($counts), $counts);
+    // Якщо жодна мова не визначена, повертаємо null
+    return null;
 }
 
 // Налаштування кнопки Аналізу статей
