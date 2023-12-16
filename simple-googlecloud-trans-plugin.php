@@ -202,7 +202,7 @@ function detectLanguage($text) {
     }
     // Видаляємо HTML з тексту
     $text = wp_strip_all_tags($text);
-    
+
     // Визначаємо групи мов
     $cyrillic = '/[\p{Cyrillic}]/u';
     $latin = '/[\p{Latin}]/u';
@@ -216,10 +216,13 @@ function detectLanguage($text) {
     // Перевіряємо кількість кирилічних, латинських та ідеографічних літер
     if ($cyrillic_count > $latin_count && $cyrillic_count > $ideographic_count) {
         include 'language_groups/cyrillic.php';
+        $language = detectCyrillic($text);
     } elseif ($latin_count > $cyrillic_count && $latin_count > $ideographic_count) {
         include 'language_groups/latin.php';
+        $language = detectLatin($text);
     } elseif ($ideographic_count > $cyrillic_count && $ideographic_count > $latin_count) {
         include 'language_groups/ideographic.php';
+        $language = detectIdeographic($text);
     } else {
         return null;
     }

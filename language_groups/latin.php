@@ -1,4 +1,5 @@
 <?php
+function detectLatin($text) {
 // Визначаємо латинські мови
 $english = '/[a-zA-Z]/';
 
@@ -13,4 +14,5 @@ if ($english_count > mb_strlen($text) / 2) {
 }
 
 return $language;
+}
 ?>

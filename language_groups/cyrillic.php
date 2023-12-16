@@ -1,5 +1,6 @@
 <?php
-// Визначаємо кирилічні мови
+function detectCyrillic($text) {
+    // Визначаємо кирилічні мови
 $ukrainian = '/[А-ЩЬЮЯҐІЇЄа-щьюяґіїє]/u';
 $ukrainian_specific = '/[ІЇЄіїє]/u';
 $russian = '/[А-Яа-яЁёыъ]/u';
@@ -25,4 +26,5 @@ if ($ukrainian_count > $russian_count) {
 }
 
 return $language;
+}
 ?>
