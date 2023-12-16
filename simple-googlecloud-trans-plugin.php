@@ -192,6 +192,17 @@ function mt_word_limit_input() {
 
 // Функція для визначення мови в тексті без залучення сторонніх API
 function detectLanguage($text) {
+    // Отримуємо значення обмеження кількості слів з налаштувань
+    $word_limit = get_option('mt_word_limit'); // Значення за замовчуванням вже встановлено в функції mt_word_limit_input()
+
+    // Обмежуємо текст до перших $word_limit слів, якщо $word_limit не дорівнює 0
+    if ($word_limit != 0) {
+        $words = explode(' ', $text);
+        $text = implode(' ', array_slice($words, 0, $word_limit));
+    }
+    // Видаляємо HTML з тексту
+    $text = wp_strip_all_tags($text);
+    
     // Визначаємо групи мов
     $cyrillic = '/[\p{Cyrillic}]/u';
     $latin = '/[\p{Latin}]/u';
