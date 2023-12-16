@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.38
+Version: 0.39
 Author: AntheZ
 */
 
@@ -73,11 +73,6 @@ add_filter("plugin_action_links_$plugin", 'mt_plugin_action_links' );
 // Опис секції по налаштуванню API
 function mt_section_text_api() {
     echo '<p>Введіть ваш API ключ з доступом до Google Cloud Translation API</p>';
-    if (extension_loaded('enchant')) {
-        echo 'Бібліотека Enchant встановлена на цьому сервері.';
-    } else {
-        echo 'Бібліотека Enchant не встановлена на цьому сервері.';
-    }
 }
 
 // Опис секції по налаштуванню аналізу
@@ -130,9 +125,6 @@ function mt_setting_translation_language_code() {
     // echo the field
     echo "<input id='mt_translation_language_code' name='mt_options[translation_language_code]' type='text' value='$value' />";
 }
-
-// Функція для відображення поля вводу для налаштування кількості статей для перекладу
-//function mt_limit_render()
 
 // Перевірка правильності вводу даних користувачем
 function mt_validate_options($input) {
@@ -198,42 +190,28 @@ function mt_word_limit_input() {
     echo "<input id='mt_word_limit' name='mt_word_limit' type='number' value='" . esc_attr($word_limit) . "' />";
 }
 
-// Функція для визначення мови в тексті без залучення сторонніх API, використовуючи вбудовану в PHP бібліотеку Enchant
+// Функція для визначення мови в тексті без залучення сторонніх API
 function detectLanguage($text) {
-    // Отримуємо значення обмеження кількості слів з налаштувань
-    $word_limit = get_option('mt_word_limit'); // Значення за замовчуванням вже встановлено в функції mt_word_limit_input()
+    // Визначаємо групи мов
+    $cyrillic = '/[\p{Cyrillic}]/u';
+    $latin = '/[\p{Latin}]/u';
+    $ideographic = '/[\p{Han}]/u';
 
-    // Обмежуємо текст до перших $word_limit слів, якщо $word_limit не дорівнює 0
-    if ($word_limit != 0) {
-        $words = explode(' ', $text);
-        $text = implode(' ', array_slice($words, 0, $word_limit));
+    // Рахуємо кількість кирилічних, латинських та ідеографічних літер
+    $cyrillic_count = preg_match_all($cyrillic, $text);
+    $latin_count = preg_match_all($latin, $text);
+    $ideographic_count = preg_match_all($ideographic, $text);
+
+    // Перевіряємо кількість кирилічних, латинських та ідеографічних літер
+    if ($cyrillic_count > $latin_count && $cyrillic_count > $ideographic_count) {
+        include 'language_groups/cyrillic.php';
+    } elseif ($latin_count > $cyrillic_count && $latin_count > $ideographic_count) {
+        include 'language_groups/latin.php';
+    } elseif ($ideographic_count > $cyrillic_count && $ideographic_count > $latin_count) {
+        include 'language_groups/ideographic.php';
+    } else {
+        return null;
     }
-    // Видаляємо HTML з тексту
-    $text = wp_strip_all_tags($text);
-
-    // Створюємо новий брокер enchant
-    $broker = enchant_broker_init();
-
-    // Отримуємо список доступних мов
-    $dicts = enchant_broker_list_dicts($broker);
-    $languages = array();
-    foreach ($dicts as $dict) {
-        $languages[] = $dict['lang'];
-    }
-
-    // Перевіряємо кожну мову
-    foreach ($languages as $language) {
-        if (enchant_broker_dict_exists($broker, $language)) {
-            $dict = enchant_broker_request_dict($broker, $language);
-            if (enchant_dict_check($dict, $text)) {
-                // Якщо текст відповідає мові, повертаємо код мови
-                return $language;
-            }
-        }
-    }
-
-    // Якщо мову не вдалося визначити, повертаємо null
-    return null;
 }
 
 // Налаштування кнопки Аналізу статей
