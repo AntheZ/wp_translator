@@ -2,7 +2,7 @@
 /*
 Plugin Name: Simple Google Cloud Translation Plugin
 Description: A simple plugin to translate posts using Google Cloud Translation API
-Version: 0.40
+Version: 0.41
 Author: AntheZ
 */
 
@@ -56,7 +56,7 @@ function mt_admin_init(){
     add_settings_field('mt_website_language_code', 'Website Language Code', 'mt_setting_website_language_code', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_language_code', 'Translation Language Code', 'mt_setting_translation_language_code', 'translationhandle', 'mt_main_translate');
     //add_settings_field('mt_limit', 'Limit', 'mt_limit_render', 'translationhandle', 'mt_main_translate');
-    add_settings_field('mt_translate_button', 'Translate Posts (100 за один раз)', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
+    add_settings_field('mt_translate_button', 'Translate Posts (500 за один раз)', 'mt_setting_translate_button', 'translationhandle', 'mt_main_translate');
     add_settings_field('mt_translation_progress', 'Translation Progress', 'mt_setting_translation_progress', 'translationhandle', 'mt_main_translate');
     add_settings_section('sgct_tables_cleaner', 'Tables Cleaning Settings', 'sgct_section_text', 'translationhandle');
     add_settings_field('sgct_clean_tables_button', 'Clean Tables', 'sgct_clean_tables_button', 'translationhandle', 'sgct_tables_cleaner');
@@ -331,7 +331,7 @@ function translate_posts() {
     $api_key = $options['api_key'];
 
     // Вибираємо лише неперекладені статті
-    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' AND is_already_translated = 0 LIMIT 100 "); 
+    $posts = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}sgct_analysed_posts WHERE language_code = '$website_language_code' AND is_already_translated = 0 LIMIT 500 "); 
 
     foreach ($posts as $post) {
         $original_post = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}posts WHERE ID = {$post->post_id}");
