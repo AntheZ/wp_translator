@@ -393,7 +393,7 @@ function mt_setting_translate_button() {
     // Виводимо форму
     echo '<div class="wrap">';
     echo '<form id="translatePostsForm" method="post">';
-    echo '<input type="button" id="translatePostsButton" name="translate_posts" class="button button-primary" value="Запустити перекладач" />';
+    echo '<input type="button" id="translatePostsButton" name="translate_posts" class="button button-primary" value="ОБЕРЕЖНО ДОРОГО Запустити перекладач" />';
     echo '</form>';
     echo '</div>';
 
