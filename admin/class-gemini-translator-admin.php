@@ -81,6 +81,7 @@ class Gemini_Translator_Admin {
 
                 var totalPosts = postIds.length;
                 var processedCount = 0;
+                var batch_delay = <?php echo (int) ( get_option('gemini_translator_options')['batch_delay'] ?? 6 ); ?> * 1000;
 
                 function processNextPost() {
                     if (postIds.length === 0) {
@@ -125,15 +126,15 @@ class Gemini_Translator_Admin {
                         },
                         error: function() {
                             logMessage('Post ' + postId + ': An unknown error occurred during translation.', 'red');
-                            processNextPost();
+                            setTimeout(processNextPost, batch_delay);
                         }
                     });
                 }
                 
                 function saveOrSkip(postId, translationData, callback) {
                     if (translationData === null) {
-                        // Just a formality to keep the loop going
-                        callback();
+                        // Just a formality to keep the loop going with delay
+                        setTimeout(callback, batch_delay);
                         return;
                     }
 
@@ -155,11 +156,11 @@ class Gemini_Translator_Admin {
                             } else {
                                 logMessage('Post ' + postId + ': Save failed. ' + saveResponse.data.message, 'red');
                             }
-                            callback();
+                            setTimeout(callback, batch_delay);
                         },
                         error: function() {
                             logMessage('Post ' + postId + ': An unknown error occurred during saving.', 'red');
-                            callback();
+                            setTimeout(callback, batch_delay);
                         }
                     });
                 }
@@ -279,6 +280,14 @@ class Gemini_Translator_Admin {
             $this->plugin_name,
             'setting_section_id'
         );
+
+        add_settings_field(
+            'batch_delay',
+            'Batch Delay (seconds)',
+            array( $this, 'batch_delay_callback' ),
+            $this->plugin_name,
+            'setting_section_id'
+        );
     }
 
     public function sanitize( $input ) {
@@ -295,6 +304,10 @@ class Gemini_Translator_Admin {
             $new_input['enable_logging'] = absint( $input['enable_logging'] );
         } else {
             $new_input['enable_logging'] = 0;
+        }
+
+        if ( isset( $input['batch_delay'] ) ) {
+            $new_input['batch_delay'] = absint( $input['batch_delay'] );
         }
 
         return $new_input;
@@ -326,6 +339,13 @@ class Gemini_Translator_Admin {
         echo '<input type="checkbox" id="enable_logging" name="gemini_translator_options[enable_logging]" value="1" ' . checked( 1, $value, false ) . ' />';
         echo '<label for="enable_logging">Log API requests and responses for debugging purposes.</label>';
         echo '<p class="description">Logs will be saved in <code>wp-content/uploads/gemini-translator-logs/debug.log</code> and can be viewed in the "Logs" tab.</p>';
+    }
+
+    public function batch_delay_callback() {
+        $this->options = get_option('gemini_translator_options');
+        $value = isset( $this->options['batch_delay'] ) ? $this->options['batch_delay'] : 6;
+        echo '<input type="number" id="batch_delay" name="gemini_translator_options[batch_delay]" value="' . esc_attr($value) . '" min="0" step="1" />';
+        echo '<p class="description">The delay in seconds between each request in a batch process. Default is 6 seconds to stay within the free tier limit (10 RPM).</p>';
     }
 
     private function clear_log_file() {
