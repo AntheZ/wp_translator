@@ -158,8 +158,12 @@ class Gemini_Translator_Admin {
                             }
                             setTimeout(callback, batch_delay);
                         },
-                        error: function() {
-                            logMessage('Post ' + postId + ': An unknown error occurred during saving.', 'red');
+                        error: function(jqXHR, textStatus, errorThrown) {
+                            var errorMsg = 'Post ' + postId + ': An unknown error occurred during saving. Status: ' + textStatus;
+                            if (errorThrown) {
+                                errorMsg += ' - ' + errorThrown;
+                            }
+                            logMessage(errorMsg, 'red');
                             setTimeout(callback, batch_delay);
                         }
                     });
@@ -630,7 +634,14 @@ class Gemini_Translator_Admin {
                         }
                     },
                     error: function(jqXHR, textStatus, errorThrown) {
-                        status.text('AJAX error: ' + textStatus);
+                        var errorMessage = 'AJAX error: ' + textStatus;
+                        if (errorThrown) {
+                            errorMessage += ' - ' + errorThrown;
+                        }
+                        if (jqXHR.responseText) {
+                           errorMessage += '<br/><br/><strong>Server Response:</strong><br/>' + jqXHR.responseText.substring(0, 500);
+                        }
+                        status.html(errorMessage);
                         button.prop('disabled', false);
                     },
                     complete: function() {
@@ -666,8 +677,15 @@ class Gemini_Translator_Admin {
                             button.prop('disabled', false).text('Confirm & Save');
                         }
                     },
-                    error: function() {
-                        alert('An unexpected error occurred while saving.');
+                    error: function(jqXHR, textStatus, errorThrown) {
+                        var errorMessage = 'An unexpected error occurred while saving. Status: ' + textStatus;
+                         if (errorThrown) {
+                            errorMessage += ' - ' + errorThrown;
+                        }
+                        if (jqXHR.responseText) {
+                           errorMessage += '\\n\\nServer Response:\\n' + jqXHR.responseText.substring(0, 500);
+                        }
+                        alert(errorMessage);
                         button.prop('disabled', false).text('Confirm & Save');
                     }
                 });
