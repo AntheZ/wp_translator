@@ -429,7 +429,7 @@ class Gemini_Translator_Admin {
         $prompt .= "Title: " . $title_to_translate . "\n\n";
         $prompt .= "Content:\n" . $content_to_translate;
 
-        $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' . $api_key;
+        $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $api_key;
         
         $request_body = [
             'contents' => [['parts' => [['text' => $prompt]]]],
