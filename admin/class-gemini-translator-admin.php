@@ -960,18 +960,24 @@ class Gemini_Translator_Admin {
         ?>
         <script type="text/javascript">
         jQuery(document).ready(function($) {
+            console.log('Gemini Translator: JavaScript loaded for post ID <?php echo $post->ID; ?>');
+            
             var currentPostId = <?php echo $post->ID; ?>;
             var originalTitle = '';
             var originalContent = '';
 
             // Handle Translate button click
             $('#gemini-translate-button').on('click', function() {
+                console.log('Gemini Translator: Button clicked');
+                
                 var button = $(this);
                 var spinner = $('#gemini-spinner');
                 var status = $('#gemini-translation-status');
                 
                 originalTitle = $('#title').val(); 
                 originalContent = (typeof tinymce !== 'undefined' && tinymce.get('content')) ? tinymce.get('content').getContent() : $('#content').val();
+
+                console.log('Content length: ' + (originalTitle.length + originalContent.length));
 
                 // Check content size before sending
                 var totalLength = originalTitle.length + originalContent.length;
@@ -993,8 +999,10 @@ class Gemini_Translator_Admin {
                     $('#timer').text(elapsed + 's');
                 }, 1000);
 
+                console.log('Gemini Translator: Sending AJAX request');
+
                 $.ajax({
-                    url: ajaxurl,
+                    url: typeof ajaxurl !== 'undefined' ? ajaxurl : '/wp-admin/admin-ajax.php',
                     type: 'POST',
                     data: {
                         action: 'gemini_translate_post',
@@ -1003,6 +1011,7 @@ class Gemini_Translator_Admin {
                     },
                     timeout: 600000, // 10 minutes for chunked content processing
                     success: function(response) {
+                        console.log('Gemini Translator: AJAX success', response);
                         clearInterval(timerInterval);
                         
                         if(response.success) {
@@ -1028,6 +1037,7 @@ class Gemini_Translator_Admin {
                         }
                     },
                     error: function(jqXHR, textStatus, errorThrown) {
+                        console.log('Gemini Translator: AJAX error', jqXHR, textStatus, errorThrown);
                         clearInterval(timerInterval);
                         
                         var errorMessage = 'AJAX error: ' + textStatus;
@@ -1058,12 +1068,14 @@ class Gemini_Translator_Admin {
 
             // Handle Save Changes button in modal
             $('#gemini-save-changes').on('click', function() {
+                console.log('Gemini Translator: Save button clicked');
+                
                 var button = $(this);
                 button.prop('disabled', true).text('Saving...');
                 var translationData = button.data('translation');
                 
                 $.ajax({
-                    url: ajaxurl,
+                    url: typeof ajaxurl !== 'undefined' ? ajaxurl : '/wp-admin/admin-ajax.php',
                     type: 'POST',
                     data: {
                         action: 'gemini_save_translated_post',
@@ -1075,6 +1087,7 @@ class Gemini_Translator_Admin {
                         meta_keywords: translationData.meta_keywords
                     },
                     success: function(response) {
+                        console.log('Gemini Translator: Save success', response);
                         if(response.success) {
                             // Reload the page to see the saved changes
                             location.reload();
@@ -1084,6 +1097,7 @@ class Gemini_Translator_Admin {
                         }
                     },
                     error: function(jqXHR, textStatus, errorThrown) {
+                        console.log('Gemini Translator: Save error', jqXHR, textStatus, errorThrown);
                         var errorMessage = 'An unexpected error occurred while saving. Status: ' + textStatus;
                          if (errorThrown) {
                             errorMessage += ' - ' + errorThrown;
@@ -1099,6 +1113,7 @@ class Gemini_Translator_Admin {
 
             // Handle Cancel button in modal
             $('#gemini-cancel-preview').on('click', function() {
+                console.log('Gemini Translator: Cancel button clicked');
                 $('#gemini-preview-modal').hide();
                 $('#gemini-translate-button').prop('disabled', false);
             });
