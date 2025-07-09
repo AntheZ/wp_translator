@@ -380,6 +380,10 @@ class Gemini_Translator_Admin {
     }
 
     public function handle_translation_request() {
+        // Attempt to increase resources for this potentially long-running and memory-intensive task.
+        @ini_set( 'memory_limit', '512M' );
+        @set_time_limit( 300 );
+        
         check_ajax_referer('gemini_translate_post', 'nonce');
 
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
@@ -610,6 +614,7 @@ class Gemini_Translator_Admin {
                         post_id: currentPostId,
                         nonce: $('#gemini_translator_nonce').val()
                     },
+                    timeout: 300000, // 5 minutes, to match the new server-side limit
                     success: function(response) {
                         if(response.success) {
                             if (response.data.status === 'already_in_target_language') {
@@ -640,6 +645,8 @@ class Gemini_Translator_Admin {
                         }
                         if (jqXHR.responseText) {
                            errorMessage += '<br/><br/><strong>Server Response:</strong><br/>' + jqXHR.responseText.substring(0, 500);
+                        } else {
+                           errorMessage += '<br/><br/>The server returned an empty response. This often indicates a fatal PHP error. Please check your web server\'s error logs.';
                         }
                         status.html(errorMessage);
                         button.prop('disabled', false);
