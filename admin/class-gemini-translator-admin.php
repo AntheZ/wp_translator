@@ -406,20 +406,30 @@ class Gemini_Translator_Admin {
         $content_to_translate = $post->post_content;
 
         // A single, comprehensive prompt for the entire process
-        $prompt = "You are an expert content localizer and SEO specialist. Your task is to process the following blog post.\n\n";
+        $prompt = "You are an expert content localizer, WordPress editor, and SEO specialist. Your task is to process the following blog post for translation and modernization.\n\n";
         $prompt .= "The target language is: {$target_language}\n\n";
         $prompt .= "Perform the following steps:\n";
         $prompt .= "1.  First, accurately detect the primary language of the provided text (title and content).\n";
         $prompt .= "2.  If the detected language is already the same as the target language ('{$target_language}'), you MUST stop and respond with only the following JSON object: {\"status\": \"already_in_target_language\"}.\n";
-        $prompt .= "3.  If the language is different, proceed with a full translation and enhancement.\n";
-        $prompt .= "4.  Translate the title and content to {$target_language}. Correct any grammatical or stylistic errors. Improve the overall readability and flow, while preserving the original meaning and any HTML formatting.\n";
-        $prompt .= "5.  Based on the final translated text, generate an SEO-optimized meta description (around 155-160 characters) and a comma-separated list of 5-7 relevant meta keywords.\n\n";
-        $prompt .= "Your final output MUST be a single, valid JSON object. If translating, it must contain the keys 'translated_title', 'translated_content', 'meta_description', and 'meta_keywords'. Do not add any extra text or explanations outside of the JSON structure.\n\n";
+        $prompt .= "3.  If the language is different, proceed with a full modernization, translation, and enhancement.\n";
+        $prompt .= "4.  **Modernize the HTML structure for Gutenberg:**\n";
+        $prompt .= "    -   Analyze the HTML content. Identify and remove outdated HTML tags (like `<font>`) and all inline styling attributes (e.g., `style=\"...\"`).\n";
+        $prompt .= "    -   **CRITICAL: You MUST preserve all table structures (`<table>`, `<tbody>`, `<tr>`, `<td>`, `<th>`) and their content exactly as they are.** Do not alter tables.\n";
+        $prompt .= "    -   Convert old WordPress editor comments (e.g., `<!-- wp:tadv/classic-paragraph -->`) into modern, standard Gutenberg blocks (e.g., `<!-- wp:paragraph -->`).\n";
+        $prompt .= "    -   Reformat the text using semantic HTML. Use headings (`<h2>`, `<h3>`, etc.) where appropriate for structure. Keep basic formatting like bold (`<strong>`), italics (`<em>`), and links (`<a>`). The goal is clean HTML that relies on the website's CSS for styling, not inline styles.\n";
+        $prompt .= "5.  **Translate and Enhance Content:**\n";
+        $prompt .= "    -   Translate the blog post title and the now-modernized HTML content to {$target_language}.\n";
+        $prompt .= "    -   Correct any grammatical or stylistic errors in the translated text.\n";
+        $prompt .= "    -   Improve the overall readability and flow, preserving the original meaning.\n";
+        $prompt .= "6.  **Generate SEO Meta:**\n";
+        $prompt .= "    -   Based on the final translated text, generate an SEO-optimized meta description (around 155-160 characters).\n";
+        $prompt .= "    -   Generate a comma-separated list of 5-7 relevant meta keywords.\n\n";
+        $prompt .= "Your final output MUST be a single, valid JSON object. It must contain the keys 'translated_title', 'translated_content', 'meta_description', and 'meta_keywords'. Do not add any extra text, explanations, or markdown formatting outside of the JSON structure.\n\n";
         $prompt .= "--- TEXT TO PROCESS ---\n";
         $prompt .= "Title: " . $title_to_translate . "\n\n";
         $prompt .= "Content:\n" . $content_to_translate;
 
-        $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $api_key;
+        $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' . $api_key;
         
         $request_body = [
             'contents' => [['parts' => [['text' => $prompt]]]],
@@ -456,10 +466,22 @@ class Gemini_Translator_Admin {
             wp_send_json_error(['message' => $error_message, 'response' => $response_data]);
         }
 
-        $translated_data = json_decode($translated_text_part, true);
+        // The model can sometimes wrap the JSON in markdown or return a slightly malformed string.
+        // 1. Find the JSON blob, even if it's wrapped in text or markdown.
+        if ( preg_match( '/\{(?:[^{}]|(?R))*\}/s', $translated_text_part, $matches ) ) {
+            $json_string = $matches[0];
+        } else {
+            $json_string = $translated_text_part;
+        }
+
+        // 2. Decode the JSON
+        $translated_data = json_decode($json_string, true);
+
+        // 3. Check for errors and attempt to fix
         if (json_last_error() !== JSON_ERROR_NONE) {
             $error_message = 'Failed to decode JSON from API content. Error: ' . json_last_error_msg();
             $this->log_message("Error: {$error_message}");
+            $this->log_message("Original Text Part: {$translated_text_part}");
             wp_send_json_error(['message' => $error_message, 'response' => $translated_text_part]);
         }
 
