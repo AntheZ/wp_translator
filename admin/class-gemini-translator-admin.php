@@ -399,10 +399,246 @@ class Gemini_Translator_Admin {
         return trim($content);
     }
 
+    /**
+     * Split large content into manageable chunks considering Gemini output limits
+     * Gemini 2.5 Flash: Input ~1M tokens, Output ~65K tokens
+     * We need to ensure each chunk produces output within 65K token limit
+     */
+    private function split_content_for_translation($content, $max_input_chars = 150000) {
+        // Conservative limit considering:
+        // - Input content will be translated (often expands)
+        // - Additional HTML structure modernization
+        // - Meta descriptions and keywords generation
+        // - Safety margin for API response formatting
+        
+        // If content is small enough, return as single chunk
+        if (strlen($content) <= $max_input_chars) {
+            return [$content];
+        }
+        
+        $this->log_message("Content size (" . strlen($content) . " chars) exceeds safe limit. Splitting into chunks.");
+        
+        $chunks = [];
+        $current_chunk = '';
+        
+        // First, try to split by major HTML structures that shouldn't be broken
+        // Priority: tables, then headings, then paragraphs
+        
+        // Step 1: Extract tables separately as they're complex and shouldn't be split
+        $tables = [];
+        $content_without_tables = preg_replace_callback(
+            '/<table[^>]*>.*?<\/table>/s',
+            function($matches) use (&$tables) {
+                $table_id = '___TABLE_PLACEHOLDER_' . count($tables) . '___';
+                $tables[$table_id] = $matches[0];
+                return $table_id;
+            },
+            $content
+        );
+        
+        // Step 2: Split content by major sections (h2, h3 headings)
+        $sections = preg_split('/(<h[2-3][^>]*>.*?<\/h[2-3]>)/s', $content_without_tables, -1, PREG_SPLIT_DELIM_CAPTURE);
+        
+        foreach ($sections as $section) {
+            if (empty(trim($section))) continue;
+            
+            // Restore any table placeholders in this section
+            foreach ($tables as $placeholder => $table_html) {
+                if (strpos($section, $placeholder) !== false) {
+                    $section = str_replace($placeholder, $table_html, $section);
+                }
+            }
+            
+            // Check if this section alone exceeds our limit
+            if (strlen($section) > $max_input_chars) {
+                // Save current chunk if not empty
+                if (!empty(trim($current_chunk))) {
+                    $chunks[] = trim($current_chunk);
+                    $current_chunk = '';
+                }
+                
+                // Split this large section by paragraphs
+                $this->split_large_section($section, $max_input_chars, $chunks);
+            } else {
+                // Check if adding this section would exceed the limit
+                if (strlen($current_chunk . $section) > $max_input_chars && !empty(trim($current_chunk))) {
+                    $chunks[] = trim($current_chunk);
+                    $current_chunk = $section;
+                } else {
+                    $current_chunk .= $section;
+                }
+            }
+        }
+        
+        // Add the last chunk if it's not empty
+        if (!empty(trim($current_chunk))) {
+            $chunks[] = trim($current_chunk);
+        }
+        
+        // Clean up and validate chunks
+        $final_chunks = array_filter($chunks, function($chunk) {
+            return !empty(trim($chunk));
+        });
+        
+        $this->log_message("Content split into " . count($final_chunks) . " chunks");
+        
+        return $final_chunks;
+    }
+    
+    /**
+     * Split a large section that exceeds limits
+     */
+    private function split_large_section($section, $max_size, &$chunks) {
+        // Split by paragraphs
+        $paragraphs = preg_split('/(<\/p>\s*<p[^>]*>)/s', $section, -1, PREG_SPLIT_DELIM_CAPTURE);
+        $current_chunk = '';
+        
+        foreach ($paragraphs as $paragraph) {
+            if (empty(trim($paragraph))) continue;
+            
+            // If this single paragraph is too large, we need to split it further
+            if (strlen($paragraph) > $max_size) {
+                // Save current chunk if not empty
+                if (!empty(trim($current_chunk))) {
+                    $chunks[] = trim($current_chunk);
+                    $current_chunk = '';
+                }
+                
+                // Split by sentences for very long paragraphs
+                $sentences = preg_split('/(?<=[.!?])\s+/', $paragraph, -1, PREG_SPLIT_NO_EMPTY);
+                $sentence_chunk = '';
+                
+                foreach ($sentences as $sentence) {
+                    if (strlen($sentence_chunk . $sentence) > $max_size && !empty($sentence_chunk)) {
+                        $chunks[] = trim($sentence_chunk);
+                        $sentence_chunk = $sentence;
+                    } else {
+                        $sentence_chunk .= ' ' . $sentence;
+                    }
+                }
+                
+                if (!empty(trim($sentence_chunk))) {
+                    $current_chunk = trim($sentence_chunk);
+                }
+            } else {
+                // Normal paragraph processing
+                if (strlen($current_chunk . $paragraph) > $max_size && !empty(trim($current_chunk))) {
+                    $chunks[] = trim($current_chunk);
+                    $current_chunk = $paragraph;
+                } else {
+                    $current_chunk .= $paragraph;
+                }
+            }
+        }
+        
+        // Add remaining content to current chunk
+        if (!empty(trim($current_chunk))) {
+            $chunks[] = trim($current_chunk);
+        }
+    }
+    
+    /**
+     * Translate content in chunks with careful output size management
+     */
+    private function translate_chunked_content($title, $content, $target_language, $api_key) {
+        $chunks = $this->split_content_for_translation($content);
+        $total_chunks = count($chunks);
+        
+        $this->log_message("Content split into {$total_chunks} chunks for translation");
+        
+        if ($total_chunks === 1) {
+            // Single chunk - use existing method
+            return $this->translate_single_chunk($title, $chunks[0], $target_language, $api_key, true);
+        }
+        
+        // Multiple chunks - translate each separately
+        $translated_chunks = [];
+        $final_meta_description = '';
+        $final_meta_keywords = '';
+        $translated_title = '';
+        
+        for ($i = 0; $i < $total_chunks; $i++) {
+            $chunk_number = $i + 1;
+            $this->log_message("Translating chunk {$chunk_number}/{$total_chunks} (size: " . strlen($chunks[$i]) . " chars)");
+            
+            // For first chunk, include title and request meta data
+            $include_title = ($i === 0);
+            $chunk_result = $this->translate_single_chunk(
+                $include_title ? $title : '', 
+                $chunks[$i], 
+                $target_language, 
+                $api_key, 
+                $include_title
+            );
+            
+            if (!$chunk_result || !$chunk_result['success']) {
+                $this->log_message("Failed to translate chunk {$chunk_number}: " . ($chunk_result['message'] ?? 'Unknown error'));
+                return ['success' => false, 'message' => "Failed to translate content chunk {$chunk_number}"];
+            }
+            
+            $chunk_data = $chunk_result['data'];
+            
+            // Store title and meta from first chunk
+            if ($i === 0 && !empty($chunk_data['translated_title'])) {
+                $translated_title = $chunk_data['translated_title'];
+                $final_meta_description = $chunk_data['meta_description'] ?? '';
+                $final_meta_keywords = $chunk_data['meta_keywords'] ?? '';
+            }
+            
+            $translated_chunks[] = $chunk_data['translated_content'];
+            
+            $this->log_message("Successfully translated chunk {$chunk_number}");
+            
+            // Delay between chunks to respect rate limits
+            if ($i < $total_chunks - 1) {
+                sleep(3); // Increased delay for stability
+            }
+        }
+        
+        // Combine all translated chunks
+        $combined_content = implode("\n\n", $translated_chunks);
+        
+        $this->log_message("All chunks translated successfully. Combined content size: " . strlen($combined_content) . " chars");
+        
+        return [
+            'success' => true,
+            'data' => [
+                'translated_title' => $translated_title ?: $title,
+                'translated_content' => $combined_content,
+                'meta_description' => $final_meta_description,
+                'meta_keywords' => $final_meta_keywords
+            ],
+            'chunks_count' => $total_chunks // Pass the total chunks count
+        ];
+    }
+    
+    /**
+     * Translate a single chunk with simplified prompt for chunks
+     */
+    private function translate_single_chunk($title, $content, $target_language, $api_key, $include_meta = true) {
+        // Optimize content
+        $content = $this->optimize_content_for_api($content);
+        
+        // Build simplified prompt for better output size control
+        if ($include_meta && !empty($title)) {
+            // Full prompt for first chunk with title and meta
+            $prompt = "Translate and modernize this blog post to {$target_language}. Modernize HTML for Gutenberg (remove inline styles, preserve tables). Generate meta description (155 chars) and 5 keywords.\n\n";
+            $prompt .= "Output as JSON: {\"translated_title\": \"...\", \"translated_content\": \"...\", \"meta_description\": \"...\", \"meta_keywords\": \"...\"}\n\n";
+            $prompt .= "Title: {$title}\n\nContent:\n{$content}";
+        } else {
+            // Simplified prompt for content chunks
+            $prompt = "Translate this content chunk to {$target_language}. Modernize HTML for Gutenberg (remove inline styles, preserve tables exactly).\n\n";
+            $prompt .= "Output as JSON: {\"translated_content\": \"...\"}\n\n";
+            $prompt .= "Content:\n{$content}";
+        }
+        
+        return $this->make_api_request($prompt, $api_key, 3);
+    }
+
     public function handle_translation_request() {
         // Attempt to increase resources for this potentially long-running and memory-intensive task.
         @ini_set( 'memory_limit', '512M' );
-        @set_time_limit( 300 );
+        @set_time_limit( 600 ); // Increased timeout for chunked processing
         
         check_ajax_referer('gemini_translate_post', 'nonce');
 
@@ -416,207 +652,48 @@ class Gemini_Translator_Admin {
         }
 
         $options = get_option('gemini_translator_options');
-        $api_key = isset($options['api_key']) ? $options['api_key'] : '';
-        $target_language = isset($options['target_language']) ? $options['target_language'] : 'Ukrainian';
+        $api_key = $options['api_key'] ?? '';
+        $target_language = $options['target_language'] ?? 'Ukrainian';
 
         if (empty($api_key)) {
-            $this->log_message("Error: Gemini API Key is not set.");
-            wp_send_json_error(['message' => 'Gemini API Key is not set.']);
+            $this->log_message("Error: API key is missing.");
+            wp_send_json_error(['message' => 'API key is not configured.']);
         }
 
         $post = get_post($post_id);
         if (!$post) {
-            $this->log_message("Error: Could not retrieve post with ID: {$post_id}");
-            wp_send_json_error(['message' => 'Could not retrieve post.']);
+            $this->log_message("Error: Post not found for ID {$post_id}");
+            wp_send_json_error(['message' => 'Post not found.']);
         }
-        
+
         $title_to_translate = $post->post_title;
         $content_to_translate = $post->post_content;
 
-        // Optimize content to reduce size while preserving structure
-        $content_to_translate = $this->optimize_content_for_api($content_to_translate);
+        // Use chunked translation system
+        $translation_result = $this->translate_chunked_content(
+            $title_to_translate, 
+            $content_to_translate, 
+            $target_language, 
+            $api_key
+        );
 
-        // Check content size - Gemini has input limits
-        $total_content_length = strlen($title_to_translate . $content_to_translate);
-        $this->log_message("Content size after optimization: {$total_content_length} characters");
-        
-        if ($total_content_length > 900000) { // Conservative limit for Gemini 2.5 Flash
-            $this->log_message("Error: Content too large ({$total_content_length} chars). Consider splitting the content.");
-            wp_send_json_error(['message' => 'Content is too large for processing. Please split into smaller articles.']);
+        if (!$translation_result || !$translation_result['success']) {
+            $error_message = $translation_result['message'] ?? 'Unknown translation error';
+            $this->log_message("Translation failed: {$error_message}");
+            wp_send_json_error(['message' => $error_message]);
         }
 
-        // A single, comprehensive prompt for the entire process
-        $prompt = "You are an expert content localizer, WordPress editor, and SEO specialist. Your task is to process the following blog post for translation and modernization.\n\n";
-        $prompt .= "The target language is: {$target_language}\n\n";
-        $prompt .= "Perform the following steps:\n";
-        $prompt .= "1.  First, accurately detect the primary language of the provided text (title and content).\n";
-        $prompt .= "2.  If the detected language is already the same as the target language ('{$target_language}'), you MUST stop and respond with only the following JSON object: {\"status\": \"already_in_target_language\"}.\n";
-        $prompt .= "3.  If the language is different, proceed with a full modernization, translation, and enhancement.\n";
-        $prompt .= "4.  **Modernize the HTML structure for Gutenberg:**\n";
-        $prompt .= "    -   Analyze the HTML content. Identify and remove outdated HTML tags (like `<font>`) and all inline styling attributes (e.g., `style=\"...\"`).\n";
-        $prompt .= "    -   **CRITICAL: You MUST preserve all table structures (`<table>`, `<tbody>`, `<tr>`, `<td>`, `<th>`) and their content exactly as they are.** Do not alter tables.\n";
-        $prompt .= "    -   Convert old WordPress editor comments (e.g., `<!-- wp:tadv/classic-paragraph -->`) into modern, standard Gutenberg blocks (e.g., `<!-- wp:paragraph -->`).\n";
-        $prompt .= "    -   Reformat the text using semantic HTML. Use headings (`<h2>`, `<h3>`, etc.) where appropriate for structure. Keep basic formatting like bold (`<strong>`), italics (`<em>`), and links (`<a>`). The goal is clean HTML that relies on the website's CSS for styling, not inline styles.\n";
-        $prompt .= "5.  **Translate and Enhance Content:**\n";
-        $prompt .= "    -   Translate the blog post title and the now-modernized HTML content to {$target_language}.\n";
-        $prompt .= "    -   Correct any grammatical or stylistic errors in the translated text.\n";
-        $prompt .= "    -   Improve the overall readability and flow, preserving the original meaning.\n";
-        $prompt .= "6.  **Generate SEO Meta:**\n";
-        $prompt .= "    -   Based on the final translated text, generate an SEO-optimized meta description (around 155-160 characters).\n";
-        $prompt .= "    -   Generate a comma-separated list of 5-7 relevant meta keywords.\n\n";
-        $prompt .= "Your final output MUST be a single, valid JSON object. It must contain the keys 'translated_title', 'translated_content', 'meta_description', and 'meta_keywords'. Do not add any extra text, explanations, or markdown formatting outside of the JSON structure.\n\n";
-        $prompt .= "--- TEXT TO PROCESS ---\n";
-        $prompt .= "Title: " . $title_to_translate . "\n\n";
-        $prompt .= "Content:\n" . $content_to_translate;
-
-        $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $api_key;
+        $data = $translation_result['data'];
+        $chunks_count = $translation_result['chunks_count'] ?? 1;
+        $this->log_message("Translation completed successfully");
         
-        $request_body = [
-            'contents' => [['parts' => [['text' => $prompt]]]],
-            'generationConfig' => [
-                'response_mime_type' => 'application/json',
-                'temperature' => 0.1,
-                'maxOutputTokens' => 8192
-            ]
-        ];
-        
-        $this->log_message("Request Body Sent to API:");
-        $this->log_message($request_body);
-        
-        // Retry mechanism for handling API limits and temporary failures
-        $max_retries = 3;
-        $retry_delay = 2; // seconds
-        $response = null;
-        $last_error = '';
-        
-        for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
-            $this->log_message("API Request Attempt #{$attempt}");
-            
-            $response = wp_remote_post($api_url, [
-                'method'    => 'POST',
-                'headers'   => ['Content-Type' => 'application/json'],
-                'body'      => json_encode($request_body),
-                'timeout'   => 240, // 4 minutes
-                'blocking'  => true
-            ]);
-
-            $this->log_message("Attempt #{$attempt} - Response Code: " . wp_remote_retrieve_response_code($response));
-            $this->log_message("Attempt #{$attempt} - Response Body:");
-            $this->log_message(wp_remote_retrieve_body($response));
-
-            if (is_wp_error($response)) {
-                $last_error = 'API request failed: ' . $response->get_error_message();
-                $this->log_message("Attempt #{$attempt} - Error: {$last_error}");
-                
-                if ($attempt < $max_retries) {
-                    $this->log_message("Waiting {$retry_delay} seconds before retry...");
-                    sleep($retry_delay);
-                    $retry_delay *= 2; // Exponential backoff
-                }
-                continue;
-            }
-            
-            $response_code = wp_remote_retrieve_response_code($response);
-            $response_body = wp_remote_retrieve_body($response);
-            
-            // Check for API errors
-            if ($response_code !== 200) {
-                $last_error = "API returned HTTP {$response_code}: " . $response_body;
-                $this->log_message("Attempt #{$attempt} - HTTP Error: {$last_error}");
-                
-                // Handle rate limiting
-                if ($response_code === 429) {
-                    if ($attempt < $max_retries) {
-                        $this->log_message("Rate limited. Waiting 60 seconds before retry...");
-                        sleep(60);
-                    }
-                    continue;
-                }
-                
-                // Handle other 4xx/5xx errors
-                if ($response_code >= 400) {
-                    if ($attempt < $max_retries) {
-                        $this->log_message("Server error. Waiting {$retry_delay} seconds before retry...");
-                        sleep($retry_delay);
-                        $retry_delay *= 2;
-                    }
-                    continue;
-                }
-            }
-            
-            // Check if response body is empty
-            if (empty($response_body)) {
-                $last_error = 'API returned empty response body';
-                $this->log_message("Attempt #{$attempt} - Empty response");
-                
-                if ($attempt < $max_retries) {
-                    sleep($retry_delay);
-                    $retry_delay *= 2;
-                }
-                continue;
-            }
-            
-            // Success - break out of retry loop
-            break;
-        }
-        
-        // If all retries failed
-        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200 || empty(wp_remote_retrieve_body($response))) {
-            $this->log_message("All retry attempts failed. Final error: {$last_error}");
-            wp_send_json_error(['message' => "API request failed after {$max_retries} attempts: {$last_error}"]);
-        }
-
-        $response_body = wp_remote_retrieve_body($response);
-        $response_data = json_decode($response_body, true);
-        
-        $this->log_message("Final successful response parsed:");
-        $this->log_message($response_data);
-        
-        if (!isset($response_data['candidates'][0]['content']['parts'][0]['text'])) {
-            $error_message = 'Unexpected API response structure';
-            $this->log_message("Error: {$error_message}");
-            $this->log_message("Response structure: " . print_r($response_data, true));
-            wp_send_json_error(['message' => $error_message, 'response' => $response_data]);
-        }
-        
-        $translated_text_part = $response_data['candidates'][0]['content']['parts'][0]['text'];
-        
-        if (empty($translated_text_part)) {
-            $error_message = 'API returned empty content';
-            $this->log_message("Error: {$error_message}");
-            wp_send_json_error(['message' => $error_message, 'response' => $response_data]);
-        }
-
-        $this->log_message("Raw AI response text:");
-        $this->log_message($translated_text_part);
-
-        // The model can sometimes wrap the JSON in markdown or return a slightly malformed string.
-        // 1. Find the JSON blob, even if it's wrapped in text or markdown.
-        if ( preg_match( '/\{(?:[^{}]|(?R))*\}/s', $translated_text_part, $matches ) ) {
-            $json_string = $matches[0];
-        } else {
-            $json_string = $translated_text_part;
-        }
-
-        $this->log_message("Extracted JSON string:");
-        $this->log_message($json_string);
-
-        // 2. Decode the JSON
-        $translated_data = json_decode($json_string, true);
-
-        // 3. Check for errors and attempt to fix
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $error_message = 'Failed to decode JSON from API content. Error: ' . json_last_error_msg();
-            $this->log_message("Error: {$error_message}");
-            $this->log_message("JSON that failed to parse: {$json_string}");
-            wp_send_json_error(['message' => $error_message, 'raw_response' => $translated_text_part]);
-        }
-
-        $this->log_message("Successfully parsed translation data:");
-        $this->log_message($translated_data);
-
-        // Instead of updating the post, we send the data back to the browser.
-        wp_send_json_success($translated_data);
+        wp_send_json_success([
+            'translated_title' => $data['translated_title'],
+            'translated_content' => $data['translated_content'],
+            'meta_description' => $data['meta_description'] ?? '',
+            'meta_keywords' => $data['meta_keywords'] ?? '',
+            'chunks_processed' => $chunks_count
+        ]);
     }
 
     public function handle_save_translated_post() {
@@ -752,7 +829,7 @@ class Gemini_Translator_Admin {
                         post_id: currentPostId,
                         nonce: $('#gemini_translator_nonce').val()
                     },
-                    timeout: 300000, // 5 minutes to match server-side timeout
+                    timeout: 600000, // 10 minutes for chunked content processing
                     success: function(response) {
                         clearInterval(timerInterval);
                         
