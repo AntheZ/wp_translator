@@ -908,6 +908,7 @@ class Gemini_Translator_Admin {
     }
 
     public function add_translate_meta_box() {
+        // Add metabox for both classic and block editor
         add_meta_box(
             'gemini_translator_meta_box',
             'Gemini Translator',
@@ -917,8 +918,36 @@ class Gemini_Translator_Admin {
             'high' // Priority
         );
 
+        // Also add support for pages
+        add_meta_box(
+            'gemini_translator_meta_box_page',
+            'Gemini Translator',
+            array( $this, 'render_translate_meta_box' ),
+            'page', // Add to pages
+            'side', // Position
+            'high' // Priority
+        );
+
         // Add a placeholder for the modal window
         add_action( 'admin_footer', array( $this, 'render_preview_modal' ) );
+        
+        // Ensure our metabox works in both Classic and Block editors
+        add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
+    }
+
+    public function enqueue_block_editor_assets() {
+        // For Block Editor, we need to ensure our scripts work
+        wp_enqueue_script( 'jquery' );
+        
+        // Add inline script to make sure our metabox is visible and functional
+        wp_add_inline_script( 'jquery', '
+            jQuery(document).ready(function($) {
+                // Ensure metabox is visible in Block Editor
+                if (typeof wp !== "undefined" && wp.data) {
+                    console.log("Gemini Translator: Block Editor detected");
+                }
+            });
+        ' );
     }
 
     public function render_preview_modal() {
@@ -961,10 +990,36 @@ class Gemini_Translator_Admin {
         <script type="text/javascript">
         jQuery(document).ready(function($) {
             console.log('Gemini Translator: JavaScript loaded for post ID <?php echo $post->ID; ?>');
+            console.log('Gemini Translator: WordPress version detected, checking editors...');
+            
+            // Check what editors are available
+            if (typeof wp !== 'undefined' && wp.data && wp.data.select('core/editor')) {
+                console.log('Gemini Translator: Block Editor (Gutenberg) available');
+            }
+            if (typeof tinymce !== 'undefined') {
+                console.log('Gemini Translator: TinyMCE available');
+            }
+            if ($('#content').length) {
+                console.log('Gemini Translator: Content textarea available');
+            }
+            if ($('#title').length) {
+                console.log('Gemini Translator: Title field available');
+            }
+            if ($('.editor-post-title__input').length) {
+                console.log('Gemini Translator: Block Editor title field available');
+            }
             
             var currentPostId = <?php echo $post->ID; ?>;
             var originalTitle = '';
             var originalContent = '';
+
+            // Check if our button exists
+            if ($('#gemini-translate-button').length === 0) {
+                console.error('Gemini Translator: Button not found! Metabox may not be loaded.');
+                return;
+            } else {
+                console.log('Gemini Translator: Button found, attaching click handler');
+            }
 
             // Handle Translate button click
             $('#gemini-translate-button').on('click', function() {
@@ -974,13 +1029,58 @@ class Gemini_Translator_Admin {
                 var spinner = $('#gemini-spinner');
                 var status = $('#gemini-translation-status');
                 
-                originalTitle = $('#title').val(); 
-                originalContent = (typeof tinymce !== 'undefined' && tinymce.get('content')) ? tinymce.get('content').getContent() : $('#content').val();
+                // Get title - with safety check
+                originalTitle = $('#title').val() || '';
+                if (!originalTitle && $('.editor-post-title__input').length) {
+                    // Block Editor title
+                    originalTitle = $('.editor-post-title__input').val() || '';
+                }
+                
+                // Get content - with safety checks for different editors
+                originalContent = '';
+                
+                // Try Block Editor (Gutenberg) first
+                if (typeof wp !== 'undefined' && wp.data && wp.data.select('core/editor')) {
+                    try {
+                        originalContent = wp.data.select('core/editor').getEditedPostContent() || '';
+                        console.log('Gemini Translator: Content from Block Editor');
+                    } catch (e) {
+                        console.log('Gemini Translator: Block Editor not available, trying TinyMCE');
+                    }
+                }
+                
+                // Fallback to TinyMCE if Block Editor didn't work
+                if (!originalContent && typeof tinymce !== 'undefined' && tinymce.get('content')) {
+                    try {
+                        originalContent = tinymce.get('content').getContent() || '';
+                        console.log('Gemini Translator: Content from TinyMCE');
+                    } catch (e) {
+                        console.log('Gemini Translator: TinyMCE error:', e);
+                    }
+                }
+                
+                // Final fallback to textarea
+                if (!originalContent) {
+                    originalContent = $('#content').val() || '';
+                    console.log('Gemini Translator: Content from textarea fallback');
+                }
 
-                console.log('Content length: ' + (originalTitle.length + originalContent.length));
+                console.log('Gemini Translator: Title length:', originalTitle.length);
+                console.log('Gemini Translator: Content length:', originalContent.length);
+
+                // Safety check before calculating total length
+                if (typeof originalTitle !== 'string') originalTitle = '';
+                if (typeof originalContent !== 'string') originalContent = '';
+
+                var totalLength = originalTitle.length + originalContent.length;
+                console.log('Gemini Translator: Total content length:', totalLength);
+                
+                if (totalLength === 0) {
+                    status.html('<span style="color:red;">Error: No content found to translate. Please make sure you have a title or content.</span>');
+                    return;
+                }
 
                 // Check content size before sending
-                var totalLength = originalTitle.length + originalContent.length;
                 if (totalLength > 900000) {
                     status.html('<span style="color:red;">Error: Content is too large (' + totalLength + ' characters). Please split into smaller articles.</span>');
                     return;
