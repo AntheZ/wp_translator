@@ -379,6 +379,26 @@ class Gemini_Translator_Admin {
         file_put_contents( $log_file, $formatted_message, FILE_APPEND );
     }
 
+    /**
+     * Optimize content before sending to API by removing excessive inline styles while preserving structure
+     */
+    private function optimize_content_for_api( $content ) {
+        // Remove excessive inline styles from table cells but keep basic structure
+        $content = preg_replace('/style="[^"]*(?:width|height|border)[^"]*"/i', '', $content);
+        
+        // Remove width attributes from table elements as they're usually redundant
+        $content = preg_replace('/width="[^"]*"/i', '', $content);
+        
+        // Remove excessive whitespace and empty paragraphs that add to content size
+        $content = preg_replace('/\s+/', ' ', $content);
+        $content = preg_replace('/<p>\s*<\/p>/', '', $content);
+        
+        // Clean up any double spaces created by our regex
+        $content = str_replace('  ', ' ', $content);
+        
+        return trim($content);
+    }
+
     public function handle_translation_request() {
         // Attempt to increase resources for this potentially long-running and memory-intensive task.
         @ini_set( 'memory_limit', '512M' );
@@ -413,6 +433,18 @@ class Gemini_Translator_Admin {
         $title_to_translate = $post->post_title;
         $content_to_translate = $post->post_content;
 
+        // Optimize content to reduce size while preserving structure
+        $content_to_translate = $this->optimize_content_for_api($content_to_translate);
+
+        // Check content size - Gemini has input limits
+        $total_content_length = strlen($title_to_translate . $content_to_translate);
+        $this->log_message("Content size after optimization: {$total_content_length} characters");
+        
+        if ($total_content_length > 900000) { // Conservative limit for Gemini 2.5 Flash
+            $this->log_message("Error: Content too large ({$total_content_length} chars). Consider splitting the content.");
+            wp_send_json_error(['message' => 'Content is too large for processing. Please split into smaller articles.']);
+        }
+
         // A single, comprehensive prompt for the entire process
         $prompt = "You are an expert content localizer, WordPress editor, and SEO specialist. Your task is to process the following blog post for translation and modernization.\n\n";
         $prompt .= "The target language is: {$target_language}\n\n";
@@ -441,38 +473,122 @@ class Gemini_Translator_Admin {
         
         $request_body = [
             'contents' => [['parts' => [['text' => $prompt]]]],
-            'generationConfig' => ['response_mime_type' => 'application/json']
+            'generationConfig' => [
+                'response_mime_type' => 'application/json',
+                'temperature' => 0.1,
+                'maxOutputTokens' => 8192
+            ]
         ];
         
         $this->log_message("Request Body Sent to API:");
         $this->log_message($request_body);
         
-        $response = wp_remote_post($api_url, [
-            'method'    => 'POST',
-            'headers'   => ['Content-Type' => 'application/json'],
-            'body'      => json_encode($request_body),
-            'timeout'   => 180, // Increased timeout for large articles
-        ]);
+        // Retry mechanism for handling API limits and temporary failures
+        $max_retries = 3;
+        $retry_delay = 2; // seconds
+        $response = null;
+        $last_error = '';
+        
+        for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
+            $this->log_message("API Request Attempt #{$attempt}");
+            
+            $response = wp_remote_post($api_url, [
+                'method'    => 'POST',
+                'headers'   => ['Content-Type' => 'application/json'],
+                'body'      => json_encode($request_body),
+                'timeout'   => 240, // 4 minutes
+                'blocking'  => true
+            ]);
 
-        $this->log_message("Raw Response from API:");
-        $this->log_message(wp_remote_retrieve_body($response));
+            $this->log_message("Attempt #{$attempt} - Response Code: " . wp_remote_retrieve_response_code($response));
+            $this->log_message("Attempt #{$attempt} - Response Body:");
+            $this->log_message(wp_remote_retrieve_body($response));
 
-        if (is_wp_error($response)) {
-            $error_message = 'API request failed: ' . $response->get_error_message();
-            $this->log_message("Error: {$error_message}");
-            wp_send_json_error(['message' => $error_message]);
+            if (is_wp_error($response)) {
+                $last_error = 'API request failed: ' . $response->get_error_message();
+                $this->log_message("Attempt #{$attempt} - Error: {$last_error}");
+                
+                if ($attempt < $max_retries) {
+                    $this->log_message("Waiting {$retry_delay} seconds before retry...");
+                    sleep($retry_delay);
+                    $retry_delay *= 2; // Exponential backoff
+                }
+                continue;
+            }
+            
+            $response_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+            
+            // Check for API errors
+            if ($response_code !== 200) {
+                $last_error = "API returned HTTP {$response_code}: " . $response_body;
+                $this->log_message("Attempt #{$attempt} - HTTP Error: {$last_error}");
+                
+                // Handle rate limiting
+                if ($response_code === 429) {
+                    if ($attempt < $max_retries) {
+                        $this->log_message("Rate limited. Waiting 60 seconds before retry...");
+                        sleep(60);
+                    }
+                    continue;
+                }
+                
+                // Handle other 4xx/5xx errors
+                if ($response_code >= 400) {
+                    if ($attempt < $max_retries) {
+                        $this->log_message("Server error. Waiting {$retry_delay} seconds before retry...");
+                        sleep($retry_delay);
+                        $retry_delay *= 2;
+                    }
+                    continue;
+                }
+            }
+            
+            // Check if response body is empty
+            if (empty($response_body)) {
+                $last_error = 'API returned empty response body';
+                $this->log_message("Attempt #{$attempt} - Empty response");
+                
+                if ($attempt < $max_retries) {
+                    sleep($retry_delay);
+                    $retry_delay *= 2;
+                }
+                continue;
+            }
+            
+            // Success - break out of retry loop
+            break;
+        }
+        
+        // If all retries failed
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200 || empty(wp_remote_retrieve_body($response))) {
+            $this->log_message("All retry attempts failed. Final error: {$last_error}");
+            wp_send_json_error(['message' => "API request failed after {$max_retries} attempts: {$last_error}"]);
         }
 
         $response_body = wp_remote_retrieve_body($response);
         $response_data = json_decode($response_body, true);
         
-        $translated_text_part = $response_data['candidates'][0]['content']['parts'][0]['text'] ?? '';
-        if (empty($translated_text_part)) {
-            $error_message = 'Failed to get content from API response.';
+        $this->log_message("Final successful response parsed:");
+        $this->log_message($response_data);
+        
+        if (!isset($response_data['candidates'][0]['content']['parts'][0]['text'])) {
+            $error_message = 'Unexpected API response structure';
             $this->log_message("Error: {$error_message}");
-            $this->log_message($response_data);
+            $this->log_message("Response structure: " . print_r($response_data, true));
             wp_send_json_error(['message' => $error_message, 'response' => $response_data]);
         }
+        
+        $translated_text_part = $response_data['candidates'][0]['content']['parts'][0]['text'];
+        
+        if (empty($translated_text_part)) {
+            $error_message = 'API returned empty content';
+            $this->log_message("Error: {$error_message}");
+            wp_send_json_error(['message' => $error_message, 'response' => $response_data]);
+        }
+
+        $this->log_message("Raw AI response text:");
+        $this->log_message($translated_text_part);
 
         // The model can sometimes wrap the JSON in markdown or return a slightly malformed string.
         // 1. Find the JSON blob, even if it's wrapped in text or markdown.
@@ -482,6 +598,9 @@ class Gemini_Translator_Admin {
             $json_string = $translated_text_part;
         }
 
+        $this->log_message("Extracted JSON string:");
+        $this->log_message($json_string);
+
         // 2. Decode the JSON
         $translated_data = json_decode($json_string, true);
 
@@ -489,9 +608,12 @@ class Gemini_Translator_Admin {
         if (json_last_error() !== JSON_ERROR_NONE) {
             $error_message = 'Failed to decode JSON from API content. Error: ' . json_last_error_msg();
             $this->log_message("Error: {$error_message}");
-            $this->log_message("Original Text Part: {$translated_text_part}");
-            wp_send_json_error(['message' => $error_message, 'response' => $translated_text_part]);
+            $this->log_message("JSON that failed to parse: {$json_string}");
+            wp_send_json_error(['message' => $error_message, 'raw_response' => $translated_text_part]);
         }
+
+        $this->log_message("Successfully parsed translation data:");
+        $this->log_message($translated_data);
 
         // Instead of updating the post, we send the data back to the browser.
         wp_send_json_success($translated_data);
@@ -602,9 +724,25 @@ class Gemini_Translator_Admin {
                 originalTitle = $('#title').val(); 
                 originalContent = (typeof tinymce !== 'undefined' && tinymce.get('content')) ? tinymce.get('content').getContent() : $('#content').val();
 
+                // Check content size before sending
+                var totalLength = originalTitle.length + originalContent.length;
+                if (totalLength > 900000) {
+                    status.html('<span style="color:red;">Error: Content is too large (' + totalLength + ' characters). Please split into smaller articles.</span>');
+                    return;
+                }
+
                 button.prop('disabled', true);
                 spinner.addClass('is-active');
-                status.text('Translating...').show();
+                
+                // Show progress and estimated time
+                var startTime = Date.now();
+                status.html('Translating... This may take 2-4 minutes for large articles.<br><span id="timer">0s</span>').show();
+                
+                // Update timer every second
+                var timerInterval = setInterval(function() {
+                    var elapsed = Math.round((Date.now() - startTime) / 1000);
+                    $('#timer').text(elapsed + 's');
+                }, 1000);
 
                 $.ajax({
                     url: ajaxurl,
@@ -614,11 +752,13 @@ class Gemini_Translator_Admin {
                         post_id: currentPostId,
                         nonce: $('#gemini_translator_nonce').val()
                     },
-                    timeout: 300000, // 5 minutes, to match the new server-side limit
+                    timeout: 300000, // 5 minutes to match server-side timeout
                     success: function(response) {
+                        clearInterval(timerInterval);
+                        
                         if(response.success) {
                             if (response.data.status === 'already_in_target_language') {
-                                status.text('Post is already in the target language.');
+                                status.html('<span style="color:blue;">Post is already in the target language.</span>');
                                 button.prop('disabled', false);
                             } else {
                                 // Populate and show the modal
@@ -634,24 +774,34 @@ class Gemini_Translator_Admin {
                                 $('#gemini-preview-modal').show();
                             }
                         } else {
-                            status.text('Error: ' + response.data.message);
+                            status.html('<span style="color:red;">Error: ' + response.data.message + '</span>');
                             button.prop('disabled', false);
                         }
                     },
                     error: function(jqXHR, textStatus, errorThrown) {
+                        clearInterval(timerInterval);
+                        
                         var errorMessage = 'AJAX error: ' + textStatus;
                         if (errorThrown) {
                             errorMessage += ' - ' + errorThrown;
                         }
-                        if (jqXHR.responseText) {
-                           errorMessage += '<br/><br/><strong>Server Response:</strong><br/>' + jqXHR.responseText.substring(0, 500);
-                        } else {
-                           errorMessage += '<br/><br/>The server returned an empty response. This often indicates a fatal PHP error. Please check your web server\'s error logs.';
+                        
+                        if (jqXHR.status === 0) {
+                            errorMessage += '<br/><br/><strong>Network Error:</strong> The request was cancelled or network connection failed. This often happens with very large content or slow server response.';
+                        } else if (jqXHR.status >= 500) {
+                            errorMessage += '<br/><br/><strong>Server Error (HTTP ' + jqXHR.status + '):</strong> The server encountered an internal error. Please check server logs.';
+                        } else if (jqXHR.responseText) {
+                           errorMessage += '<br/><br/><strong>Server Response:</strong><br/>' + jqXHR.responseText.substring(0, 1000);
+                           if (jqXHR.responseText.length > 1000) {
+                               errorMessage += '...<br/><em>(Response truncated - check logs for full details)</em>';
+                           }
                         }
-                        status.html(errorMessage);
+                        
+                        status.html('<span style="color:red;">' + errorMessage + '</span>');
                         button.prop('disabled', false);
                     },
                     complete: function() {
+                        clearInterval(timerInterval);
                         spinner.removeClass('is-active');
                     }
                 });
