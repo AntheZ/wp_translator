@@ -635,6 +635,178 @@ class Gemini_Translator_Admin {
         return $this->make_api_request($prompt, $api_key, 3);
     }
 
+    /**
+     * Make API request to Gemini with retry logic
+     */
+    private function make_api_request($prompt, $api_key, $max_retries = 3) {
+        $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $api_key;
+        
+        $request_body = [
+            'contents' => [['parts' => [['text' => $prompt]]]],
+            'generationConfig' => [
+                'temperature' => 0.3,
+                'topP' => 0.8,
+                'topK' => 40,
+                'maxOutputTokens' => 65536,
+                'responseMimeType' => 'text/plain'
+            ]
+        ];
+
+        $this->log_message("Request Body Sent to API:");
+        $this->log_message($request_body);
+
+        for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
+            $this->log_message("API Request attempt {$attempt}/{$max_retries}");
+            
+            $response = wp_remote_post($api_url, [
+                'body' => json_encode($request_body),
+                'headers' => ['Content-Type' => 'application/json'],
+                'timeout' => 300 // 5 minutes per request
+            ]);
+
+            if (is_wp_error($response)) {
+                $error_message = "HTTP Request Error: " . $response->get_error_message();
+                $this->log_message($error_message);
+                
+                if ($attempt < $max_retries) {
+                    $this->log_message("Retrying in " . (2 * $attempt) . " seconds...");
+                    sleep(2 * $attempt);
+                    continue;
+                }
+                
+                return ['success' => false, 'message' => $error_message];
+            }
+
+            $response_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+            
+            $this->log_message("Response Code: {$response_code}");
+            $this->log_message("Response Body: " . substr($response_body, 0, 2000) . (strlen($response_body) > 2000 ? '...' : ''));
+
+            if ($response_code === 429) {
+                // Rate limit hit
+                $this->log_message("Rate limit hit. Waiting before retry...");
+                if ($attempt < $max_retries) {
+                    sleep(10 * $attempt);
+                    continue;
+                }
+                return ['success' => false, 'message' => 'Rate limit exceeded. Please try again later.'];
+            }
+
+            if ($response_code !== 200) {
+                $error_message = "HTTP Error {$response_code}: " . substr($response_body, 0, 500);
+                $this->log_message($error_message);
+                
+                if ($attempt < $max_retries) {
+                    sleep(2 * $attempt);
+                    continue;
+                }
+                
+                return ['success' => false, 'message' => $error_message];
+            }
+
+            // Parse the response
+            $decoded_response = json_decode($response_body, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE || !$decoded_response) {
+                $error_message = "Failed to decode API response as JSON. Raw response: " . substr($response_body, 0, 1000);
+                $this->log_message($error_message);
+                
+                if ($attempt < $max_retries) {
+                    sleep(2 * $attempt);
+                    continue;
+                }
+                
+                return ['success' => false, 'message' => 'Invalid JSON response from API'];
+            }
+
+            // Extract content from Gemini response structure
+            if (!isset($decoded_response['candidates'][0]['content']['parts'][0]['text'])) {
+                $error_message = "Unexpected response structure from API";
+                $this->log_message($error_message);
+                $this->log_message("Full response structure: " . json_encode($decoded_response, JSON_PRETTY_PRINT));
+                
+                if ($attempt < $max_retries) {
+                    sleep(2 * $attempt);
+                    continue;
+                }
+                
+                return ['success' => false, 'message' => $error_message];
+            }
+
+            $content = $decoded_response['candidates'][0]['content']['parts'][0]['text'];
+            $this->log_message("Extracted content: " . substr($content, 0, 1000) . (strlen($content) > 1000 ? '...' : ''));
+
+            // Try to extract JSON from the response
+            $json_data = $this->extract_json_from_response($content);
+            
+            if (!$json_data) {
+                $error_message = "Failed to extract valid JSON from API response. Content: " . substr($content, 0, 1000);
+                $this->log_message($error_message);
+                
+                if ($attempt < $max_retries) {
+                    sleep(2 * $attempt);
+                    continue;
+                }
+                
+                return ['success' => false, 'message' => 'API returned invalid JSON format'];
+            }
+
+            $this->log_message("Successfully parsed JSON response");
+            return ['success' => true, 'data' => $json_data];
+        }
+
+        return ['success' => false, 'message' => "All {$max_retries} attempts failed"];
+    }
+
+    /**
+     * Extract JSON from API response with better error handling
+     */
+    private function extract_json_from_response($content) {
+        // First, try to decode the content directly
+        $json_data = json_decode($content, true);
+        if (json_last_error() === JSON_ERROR_NONE && $json_data) {
+            return $json_data;
+        }
+
+        // Try to find JSON block in the response
+        if (preg_match('/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/', $content, $matches)) {
+            $json_data = json_decode($matches[0], true);
+            if (json_last_error() === JSON_ERROR_NONE && $json_data) {
+                return $json_data;
+            }
+        }
+
+        // Try to extract content between ```json and ``` markers
+        if (preg_match('/```json\s*(\{.*?\})\s*```/s', $content, $matches)) {
+            $json_data = json_decode($matches[1], true);
+            if (json_last_error() === JSON_ERROR_NONE && $json_data) {
+                return $json_data;
+            }
+        }
+
+        // Try to find any valid JSON structure
+        if (preg_match('/(\{(?:[^{}]|{(?:[^{}]|{[^{}]*})*})*\})/', $content, $matches)) {
+            $json_data = json_decode($matches[1], true);
+            if (json_last_error() === JSON_ERROR_NONE && $json_data) {
+                return $json_data;
+            }
+        }
+
+        // Clean up the content and try again
+        $cleaned_content = preg_replace('/^[^{]*/', '', $content);
+        $cleaned_content = preg_replace('/[^}]*$/', '', $cleaned_content);
+        
+        if (!empty($cleaned_content)) {
+            $json_data = json_decode($cleaned_content, true);
+            if (json_last_error() === JSON_ERROR_NONE && $json_data) {
+                return $json_data;
+            }
+        }
+
+        return null;
+    }
+
     public function handle_translation_request() {
         // Attempt to increase resources for this potentially long-running and memory-intensive task.
         @ini_set( 'memory_limit', '512M' );
