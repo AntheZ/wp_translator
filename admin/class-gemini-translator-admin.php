@@ -163,10 +163,11 @@ class Gemini_Translator_Admin {
 
                 function processNextPost() {
                     if (postIds.length === 0) {
-                        logMessage('Batch processing complete! Reloading page to reflect changes...', 'blue');
-                        setTimeout(function() {
-                            location.reload();
-                        }, 2000);
+                        logMessage('--------------------------------------------------', 'blue');
+                        logMessage('Batch processing complete! Please refresh the page to see status updates.', 'blue');
+                        logMessage('--------------------------------------------------', 'blue');
+                        button.prop('disabled', false);
+                        $('#batch-progress-status').text('Batch processing complete!');
                         return;
                     }
 
