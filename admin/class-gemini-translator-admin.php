@@ -108,9 +108,18 @@ class Gemini_Translator_Admin {
                 </div>
             </div>
             
-            <div id="translation-log-viewer" style="margin-top: 20px;">
-                <h3>Live Log</h3>
-                <div id="batch-log" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background: #f7f7f7; white-space: pre-wrap;"></div>
+            <div id="translation-log-container" style="margin-top: 20px; display: flex; gap: 20px;">
+                <div id="live-log-container" style="flex: 1;">
+                    <h3>Live Log</h3>
+                    <div id="batch-log" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background: #f7f7f7; white-space: pre-wrap;"></div>
+                </div>
+                <div id="file-log-container" style="flex: 1;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>Full Log (from debug.log)</h3>
+                        <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin.php?page=gemini-translator&action=clear_log'), 'clear_gemini_log_nonce')); ?>" class="button button-secondary">Clear Full Log</a>
+                    </div>
+                    <?php $this->render_log_viewer(); ?>
+                </div>
             </div>
         </div>
 
@@ -346,12 +355,12 @@ class Gemini_Translator_Admin {
     }
 
     public function render_settings_page() {
-        // Handle clear log action - This logic remains here for now, but we could move it.
+        // Clear log action moved to the dashboard, but we keep the redirect handler
         if ( isset( $_GET['action'] ) && $_GET['action'] === 'clear_log' ) {
             if ( isset( $_GET['_wpnonce'] ) && wp_verify_nonce( $_GET['_wpnonce'], 'clear_gemini_log_nonce' ) ) {
                 $this->clear_log_file();
                 // Redirect to avoid re-triggering on refresh
-                wp_safe_redirect( admin_url( 'admin.php?page=gemini-translator-settings&log_cleared=true' ) );
+                wp_safe_redirect( admin_url( 'admin.php?page=gemini-translator&log_cleared=true' ) );
                 exit;
             }
         }
@@ -373,12 +382,6 @@ class Gemini_Translator_Admin {
                     submit_button();
                 ?>
             </form>
-            
-            <?php
-                // We can add a button to clear the log from here as well.
-                $clear_log_url = wp_nonce_url( admin_url( 'admin.php?page=gemini-translator-settings&action=clear_log' ), 'clear_gemini_log_nonce' );
-                echo '<p><a href="' . esc_url( $clear_log_url ) . '" class="button button-danger">Clear Log File</a></p>';
-            ?>
         </div>
         <?php
     }
@@ -395,10 +398,7 @@ class Gemini_Translator_Admin {
             }
         }
         
-        echo '<textarea readonly style="width: 100%; height: 500px; background: #fff; white-space: pre; font-family: monospace;">' . esc_textarea( $log_content ) . '</textarea>';
-        
-        $clear_log_url = wp_nonce_url( admin_url( 'admin.php?page=gemini-translator-settings&action=clear_log' ), 'clear_gemini_log_nonce' );
-        echo '<p><a href="' . esc_url( $clear_log_url ) . '" class="button button-danger">Clear Log</a></p>';
+        echo '<textarea readonly style="width: 100%; height: 300px; background: #fff; white-space: pre; font-family: monospace;">' . esc_textarea( $log_content ) . '</textarea>';
     }
 
     public function register_settings() {
@@ -800,10 +800,14 @@ class Gemini_Translator_Admin {
         // Corrected model name based on user-provided official documentation.
         $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$api_key}";
 
-        $this->log_message("Sending API request to: {$url}");
+        $this->log_message("--- Sending API Request ---");
+        $this->log_message("URL: {$url}");
+        $this->log_message("Prompt: " . json_encode($prompt, JSON_PRETTY_PRINT));
 
         $request_body = [
-            'contents' => [['parts' => [['text' => $prompt]]]],
+            'contents' => [
+                ['parts' => [['text' => $prompt]]]
+            ],
             'generationConfig' => [
                 'temperature' => 0.3,
                 'topP' => 0.8,
@@ -813,36 +817,29 @@ class Gemini_Translator_Admin {
             ]
         ];
 
-        $this->log_message("Request Body Sent to API:");
-        $this->log_message($request_body);
-
         for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
             $this->log_message("API Request attempt {$attempt}/{$max_retries}");
             
             $response = wp_remote_post($url, [
                 'body' => json_encode($request_body),
                 'headers' => ['Content-Type' => 'application/json'],
-                'timeout' => 300 // 5 minutes per request
+                'timeout' => 300, // 5 minutes
             ]);
 
             if (is_wp_error($response)) {
-                $error_message = "HTTP Request Error: " . $response->get_error_message();
-                $this->log_message($error_message);
-                
-                if ($attempt < $max_retries) {
-                    $this->log_message("Retrying in " . (2 * $attempt) . " seconds...");
-                    sleep(2 * $attempt);
-                    continue;
-                }
-                
-                return ['success' => false, 'message' => $error_message];
+                $this->log_message("API Error (WP_Error): " . $response->get_error_message());
+                continue; // Try next attempt
             }
 
             $response_code = wp_remote_retrieve_response_code($response);
             $response_body = wp_remote_retrieve_body($response);
             
-            $this->log_message("Response Code: {$response_code}");
-            $this->log_message("Response Body: " . substr($response_body, 0, 2000) . (strlen($response_body) > 2000 ? '...' : ''));
+            $this->log_message("API Response Code: {$response_code}");
+            $this->log_message("API Response Body: " . $response_body);
+
+            if ($response_code === 200) {
+                return $response_body; // Success
+            }
 
             if ($response_code === 429) {
                 // Rate limit hit
@@ -917,6 +914,7 @@ class Gemini_Translator_Admin {
             return ['success' => true, 'data' => $json_data];
         }
 
+        $this->log_message("API request failed after {$max_retries} attempts.");
         return ['success' => false, 'message' => "All {$max_retries} attempts failed"];
     }
 
