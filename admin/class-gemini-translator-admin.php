@@ -516,8 +516,12 @@ class Gemini_Translator_Admin {
     }
 
     private function log_message( $message ) {
-        $options = get_option('gemini_translator_options');
-        if ( ! isset( $options['enable_logging'] ) || ! $options['enable_logging'] ) {
+        // Ensure options are loaded, especially for AJAX calls
+        if ( empty( $this->options ) ) {
+            $this->options = get_option( 'gemini_translator_options' );
+        }
+
+        if ( ! isset( $this->options['enable_logging'] ) || ! $this->options['enable_logging'] ) {
             return;
         }
 
@@ -1082,12 +1086,14 @@ class Gemini_Translator_Admin {
      * Handles approving a translation and updating the original post.
      */
     public function handle_approve_translation() {
-        check_ajax_referer('gemini_approve_translation', 'nonce');
+        check_ajax_referer('gemini_approve_translation', '_wpnonce');
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
         if (empty($post_id)) {
             wp_send_json_error(['message' => 'Post ID is missing.']);
         }
+
+        $this->log_message("Attempting to approve translation for Post ID: {$post_id}");
         
         global $wpdb;
         $table_translations = $wpdb->prefix . 'gemini_translations';
@@ -1116,6 +1122,7 @@ class Gemini_Translator_Admin {
             ['%d']
         );
 
+        $this->log_message("Successfully approved and updated Post ID: {$post_id}");
         wp_send_json_success(['message' => 'Post updated with translation successfully.']);
     }
 
@@ -1123,12 +1130,14 @@ class Gemini_Translator_Admin {
      * Handles restoring the original post from backup.
      */
     public function handle_restore_original() {
-        check_ajax_referer('gemini_restore_original', 'nonce');
+        check_ajax_referer('gemini_restore_original', '_wpnonce');
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
         if (empty($post_id)) {
             wp_send_json_error(['message' => 'Post ID is missing.']);
         }
+
+        $this->log_message("Attempting to restore original for Post ID: {$post_id}");
 
         global $wpdb;
         $table_originals = $wpdb->prefix . 'gemini_originals';
@@ -1150,6 +1159,7 @@ class Gemini_Translator_Admin {
         // Delete the translation record for this post
         $wpdb->delete($table_translations, ['post_id' => $post_id], ['%d']);
 
+        $this->log_message("Successfully restored original for Post ID: {$post_id}");
         wp_send_json_success(['message' => 'Post restored to its original version.']);
     }
 
