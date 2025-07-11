@@ -842,23 +842,24 @@ Content Chunk:
      * Makes the actual API request to Google Gemini.
      */
     private function call_gemini_api($prompt, $post_id, $max_retries = 5) {
-        if ( empty( $this->options ) ) {
-            $this->options = get_option( 'gemini_translator_options' );
+        $this->options = get_option('gemini_translator_options');
+        $api_key = $this->options['api_key'] ?? '';
+
+        if ( empty( $api_key ) ) {
+            $this->log_message("Post ID {$post_id}: API Key is not set.");
+            return new WP_Error('api_key_not_set', 'API Key is not configured.');
         }
-        $api_key = $this->options['api_key'] ?? null;
-        if(!$api_key) {
-            return new WP_Error('api_error', 'API Key is not configured.');
-        }
 
-        // Using model gemini-2.5-flash as per memory
-        $model = $this->options['model_name'] ?? 'gemini-2.5-flash';
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$api_key}";
+        $model = !empty($this->options['api_model']) ? $this->options['api_model'] : 'gemini-2.5-flash-lite-preview-06-17';
+        $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent?key=' . $api_key;
 
-        $this->log_message("Post ID $post_id: Preparing API request.");
-
-        $request_body = [
+        $body = [
             'contents' => [
-                ['parts' => [['text' => $prompt]]]
+                [
+                    'parts' => [
+                        ['text' => $prompt]
+                    ]
+                ]
             ],
             'generationConfig' => [
                 'temperature' => 0.4,
@@ -867,68 +868,51 @@ Content Chunk:
                 'responseMimeType' => 'application/json'
             ]
         ];
+        
+        $this->log_message("Post ID {$post_id}: API Request Body: " . json_encode($body, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-        $this->log_message("Post ID $post_id: API Request Body: " . json_encode($request_body, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+        for ($i = 1; $i <= $max_retries; $i++) {
+            $this->log_message("Post ID {$post_id}: API Request attempt {$i}/{$max_retries}");
 
-        for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
-            $this->log_message("Post ID $post_id: API Request attempt {$attempt}/{$max_retries}");
-            
-            $response = wp_remote_post($url, [
-                'body' => json_encode($request_body),
+            $this->log_message("Post ID {$post_id}: Sending request to Gemini API...");
+            $response = wp_remote_post($api_url, [
+                'method'  => 'POST',
                 'headers' => ['Content-Type' => 'application/json'],
-                'timeout' => 300,
+                'body'    => json_encode($body),
+                'timeout' => 120 // Increased timeout to 120 seconds
             ]);
+            $this->log_message("Post ID {$post_id}: Received response from wp_remote_post.");
 
-            if (is_wp_Error($response)) {
-                $this->log_message("Post ID $post_id: WP_Error on attempt {$attempt}: " . $response->get_error_message());
-                // For WP_Error, a simple retry might work for transient issues like timeouts
-                if ($attempt < $max_retries) {
-                    $delay = pow(2, $attempt);
-                    $this->log_message("Post ID $post_id: Waiting {$delay} seconds before next retry...");
-                    sleep($delay);
-                    continue;
-                }
-                // If all retries fail, return the error
-                return $response;
+            if (is_wp_error($response)) {
+                $error_message = $response->get_error_message();
+                $this->log_message("Post ID {$post_id}: WP_Error on attempt {$i}. Message: {$error_message}");
+                $this->log_message("Post ID {$post_id}: Full WP_Error object: " . print_r($response, true));
+                sleep(pow(2, $i)); // Exponential backoff
+                continue;
             }
 
             $response_code = wp_remote_retrieve_response_code($response);
             $response_body = wp_remote_retrieve_body($response);
-            
-            $this->log_message("Post ID $post_id: API Response Body on attempt {$attempt}: " . $response_body);
-            $this->log_message("Post ID $post_id: API Response Code on attempt {$attempt}: {$response_code}");
+
+            $this->log_message("Post ID {$post_id}: API Response Code on attempt {$i}: {$response_code}");
 
             if ($response_code === 200) {
-                $decoded_response = json_decode($response_body, true);
-                if (json_last_error() === JSON_ERROR_NONE && isset($decoded_response['candidates'][0]['content']['parts'][0]['text'])) {
-                     $this->log_message("Post ID $post_id: Successfully received and decoded API response.");
-                     return $decoded_response['candidates'][0]['content']['parts'][0]['text'];
-                } else {
-                     $error_detail = json_last_error_msg();
-                     $this->log_message("Post ID $post_id: Failed to parse valid content from 200 response on attempt {$attempt}. JSON Error: {$error_detail}.");
-                     break; 
-                }
+                $this->log_message("Post ID {$post_id}: API Response Body on attempt {$i}: " . $response_body);
+                return $response_body;
             }
 
-            // Exponential backoff only for specific, retryable server-side errors
-            if (in_array($response_code, [429, 503, 500])) {
-                $this->log_message("Post ID $post_id: API attempt {$attempt} failed with retryable status code {$response_code}.");
-                if ($attempt < $max_retries) {
-                    // Exponential backoff: 2^1, 2^2, 2^3, etc. + random jitter
-                    $delay = pow(2, $attempt) + (mt_rand(0, 1000) / 1000);
-                    $this->log_message("Post ID $post_id: Waiting " . round($delay, 2) . " seconds before next retry...");
-                    usleep($delay * 1000000); // usleep takes microseconds
-                    continue;
-                }
+            $this->log_message("Post ID {$post_id}: API Error on attempt {$i}. Code: {$response_code}. Body: " . $response_body);
+            
+            if ($response_code == 429) {
+                $this->log_message("Post ID {$post_id}: Rate limit hit. Waiting for 60 seconds before retrying.");
+                sleep(60); 
             } else {
-                // For non-retryable errors (e.g., 400 Bad Request), log and fail immediately.
-                $this->log_message("Post ID $post_id: API attempt {$attempt} failed with non-retryable status code {$response_code}. Aborting retries.");
-                break; // Exit the loop
+                sleep(pow(2, $i));
             }
         }
 
-        $this->log_message("Post ID $post_id: API request failed after all attempts.");
-        return new WP_Error('api_error', "API request failed after {$max_retries} attempts. Last code: {$response_code}.");
+        $this->log_message("Post ID {$post_id}: API request failed after {$max_retries} attempts.");
+        return new WP_Error('api_request_failed', "API request failed after {$max_retries} attempts.");
     }
 
     /**
