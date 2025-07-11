@@ -69,6 +69,8 @@ class Gemini_Translator_Admin {
         <div class="wrap">
             <h2>Translation Dashboard</h2>
 
+            <?php wp_nonce_field( 'gemini_dashboard_actions', 'gemini_dashboard_nonce' ); ?>
+            
             <?php
             // Display a notice if logging is disabled
             $this->options = get_option('gemini_translator_options');
@@ -173,6 +175,42 @@ class Gemini_Translator_Admin {
 
         <script type="text/javascript">
         jQuery(document).ready(function($) {
+
+            function logMessage(message, color) {
+                $('#batch-log').append('<p style="color:' + color + ';">' + message + '</p>').scrollTop($('#batch-log')[0].scrollHeight);
+            }
+            
+            function translatePost(postId, callback) {
+                logMessage('Starting translation for post ID: ' + postId, 'blue');
+                 $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'gemini_translate_post',
+                        post_id: postId,
+                        nonce: $('#gemini_dashboard_nonce').val()
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            logMessage('Post ' + postId + ': ' + response.data.message, 'green');
+                        } else {
+                            logMessage('Post ' + postId + ': Translation failed. ' + response.data.message, 'red');
+                        }
+                    },
+                    error: function(jqXHR) {
+                        let errorMsg = 'Post ' + postId + ': An unknown AJAX error occurred.';
+                        if (jqXHR.responseJSON && jqXHR.responseJSON.data && jqXHR.responseJSON.data.message) {
+                            errorMsg = 'Post ' + postId + ': Error: ' + jqXHR.responseJSON.data.message;
+                        }
+                        logMessage(errorMsg, 'red');
+                    },
+                    complete: function() {
+                        if (typeof callback === 'function') {
+                            callback();
+                        }
+                    }
+                });
+            }
             
             // --- Batch Translation Logic ---
             $('#start-batch-translation').on('click', function(e) {
@@ -218,42 +256,6 @@ class Gemini_Translator_Admin {
                     });
                 }
                 
-                function logMessage(message, color) {
-                    $('#batch-log').append('<p style="color:' + color + ';">' + message + '</p>').scrollTop($('#batch-log')[0].scrollHeight);
-                }
-                
-                function translatePost(postId, callback) {
-                    logMessage('Starting translation for post ID: ' + postId, 'blue');
-                     $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'gemini_translate_post',
-                            post_id: postId,
-                            gemini_translator_nonce: $('#gemini_translator_nonce').val()
-                        },
-                        success: function(response) {
-                            if (response.success) {
-                                logMessage('Post ' + postId + ': ' + response.data.message, 'green');
-                            } else {
-                                logMessage('Post ' + postId + ': Translation failed. ' + response.data.message, 'red');
-                            }
-                        },
-                        error: function(jqXHR) {
-                            let errorMsg = 'Post ' + postId + ': An unknown AJAX error occurred.';
-                            if (jqXHR.responseJSON && jqXHR.responseJSON.data && jqXHR.responseJSON.data.message) {
-                                errorMsg = 'Post ' + postId + ': Error: ' + jqXHR.responseJSON.data.message;
-                            }
-                            logMessage(errorMsg, 'red');
-                        },
-                        complete: function() {
-                            if (typeof callback === 'function') {
-                                callback();
-                            }
-                        }
-                    });
-                }
-
                 processNextPost();
             });
 
@@ -262,7 +264,7 @@ class Gemini_Translator_Admin {
                 e.preventDefault();
                 const action = $(this).data('action');
                 const postId = $(this).data('post-id');
-                const nonce = $('#gemini_translator_nonce').val();
+                const nonce = $('#gemini_dashboard_nonce').val();
 
                 if (action === 'review') {
                     openReviewModal(postId);
@@ -290,6 +292,7 @@ class Gemini_Translator_Admin {
                     }
                 } else if (action === 'translate') {
                     if (confirm('This will submit the post for translation. Are you sure?')) {
+                        $('#batch-log').html(''); // Clear log for single translation
                         $(this).css({'pointer-events': 'none', 'color': '#999'}).text('Translating...');
                         translatePost(postId, function() {
                             logMessage('Translation process finished for post ' + postId + '. Reloading page...', 'blue');
@@ -308,7 +311,7 @@ class Gemini_Translator_Admin {
                     data: {
                         action: 'gemini_get_review_data',
                         post_id: postId,
-                        nonce: $('#gemini_translator_nonce').val()
+                        nonce: $('#gemini_dashboard_nonce').val()
                     },
                     success: function(response) {
                         if (response.success) {
@@ -345,7 +348,7 @@ class Gemini_Translator_Admin {
                     data: {
                         action: 'gemini_approve_translation',
                         post_id: postId,
-                        gemini_approve_nonce: $('#gemini_approve_nonce').val()
+                        nonce: $('#gemini_dashboard_nonce').val()
                     },
                     success: function(response) {
                         if (response.success) {
@@ -987,11 +990,7 @@ Content Chunk:
      * Resets a translation, deleting it from the custom table.
      */
     public function handle_reset_translation() {
-        $nonce = isset($_POST['nonce']) ? $_POST['nonce'] : '';
-        if ( ! wp_verify_nonce( $nonce, 'gemini_translate_post' ) ) {
-            wp_send_json_error( [ 'message' => 'Nonce verification failed.' ], 403 );
-            return;
-        }
+        check_ajax_referer('gemini_dashboard_actions', 'nonce');
 
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( [ 'message' => 'You do not have permission to perform this action.' ], 403 );
@@ -1071,7 +1070,7 @@ Content Chunk:
     }
 
     public function handle_translation_request() {
-        check_ajax_referer('gemini_translate_post', 'gemini_translator_nonce');
+        check_ajax_referer('gemini_dashboard_actions', 'nonce');
 
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
         if (!$post_id) {
@@ -1173,7 +1172,7 @@ Content Chunk:
      * Handles fetching data for the review modal.
      */
     public function handle_get_review_data() {
-        check_ajax_referer('gemini_get_review_data', 'gemini_get_review_nonce');
+        check_ajax_referer('gemini_dashboard_actions', 'nonce');
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
         if (empty($post_id)) {
@@ -1210,7 +1209,7 @@ Content Chunk:
      * Handles approving a translation and updating the original post.
      */
     public function handle_approve_translation() {
-        check_ajax_referer('gemini_approve_translation', 'gemini_approve_nonce');
+        check_ajax_referer('gemini_dashboard_actions', 'nonce');
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
         if (empty($post_id)) {
@@ -1267,7 +1266,7 @@ Content Chunk:
      * Handles restoring the original post from backup.
      */
     public function handle_restore_original() {
-        check_ajax_referer('gemini_restore_original', 'gemini_restore_nonce');
+        check_ajax_referer('gemini_dashboard_actions', 'nonce');
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
         if (empty($post_id)) {
@@ -1347,41 +1346,6 @@ Content Chunk:
         $this->clear_log_file();
         wp_send_json_success(['message' => 'Log file cleared.']);
     }
-
-    /*
-     * The old save function is no longer needed with the new workflow.
-     * It is kept here for reference but is not hooked.
-    public function handle_save_translated_post() {
-        check_ajax_referer( 'gemini_save_post_nonce', 'nonce' );
-
-        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-
-        if ( empty($post_id) ) {
-            wp_send_json_error( [ 'message' => 'Error: Post ID not provided.' ] );
-        }
-
-        $update_data = [
-            'ID' => $post_id,
-            'post_title' => sanitize_text_field( $_POST['title'] ),
-            'post_content' => wp_kses_post( $_POST['content'] ),
-        ];
-
-        $result = wp_update_post( $update_data, true );
-
-        if ( is_wp_error($result) ) {
-            wp_send_json_error( [ 'message' => $result->get_error_message() ] );
-        } else {
-            // Also update meta fields if they exist
-            if ( isset( $_POST['meta_description'] ) ) {
-                update_post_meta( $post_id, '_yoast_wpseo_metadesc', sanitize_text_field( $_POST['meta_description'] ) );
-            }
-            if ( isset( $_POST['meta_keywords'] ) ) {
-                update_post_meta( $post_id, '_yoast_wpseo_focuskw', sanitize_text_field( $_POST['meta_keywords'] ) );
-            }
-            wp_send_json_success( [ 'message' => 'Post saved successfully.' ] );
-        }
-    }
-    */
 
     public function add_translate_meta_box() {
         // Add metabox for both classic and block editor
@@ -1583,7 +1547,7 @@ Content Chunk:
                     data: {
                         action: 'gemini_translate_post',
                         post_id: currentPostId,
-                        gemini_translator_nonce: $('#gemini_translator_nonce').val()
+                        nonce: $('#gemini_dashboard_nonce').val()
                     },
                     timeout: 600000, // 10 minutes for chunked content processing
                     success: function(response) {
