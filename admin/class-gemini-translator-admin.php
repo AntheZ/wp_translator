@@ -104,7 +104,11 @@ class Gemini_Translator_Admin {
                     <div id="batch-progress-bar" style="width: 0%; height: 20px; background-color: #4CAF50;"></div>
                     <p id="batch-progress-status"></p>
                 </div>
-                <div id="batch-log" style="margin-top: 10px; height: 200px; overflow-y: scroll; border: 1px solid #ccc; padding: 5px; background: #f7f7f7;"></div>
+            </div>
+            
+            <div id="translation-log-viewer" style="margin-top: 20px;">
+                <h3>Live Log</h3>
+                <div id="batch-log" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background: #f7f7f7; white-space: pre-wrap;"></div>
             </div>
         </div>
 
@@ -179,7 +183,7 @@ class Gemini_Translator_Admin {
                         data: {
                             action: 'gemini_translate_post',
                             post_id: postId,
-                            nonce: $('#gemini_translator_nonce').val()
+                            gemini_translator_nonce: $('#gemini_translator_nonce').val()
                         },
                         success: function(response) {
                             if (response.success) {
@@ -231,7 +235,7 @@ class Gemini_Translator_Admin {
                         return;
                     }
                     ajaxAction = 'gemini_restore_original';
-                    nonce = $('input[name="gemini_restore_nonce"]').val();
+                    nonce = $('#gemini_restore_nonce').val();
 
                 } else if (action === 'review') {
                     $('#review-post-id').val(postId);
@@ -242,7 +246,7 @@ class Gemini_Translator_Admin {
                         data: {
                             action: 'gemini_get_review_data',
                             post_id: postId,
-                            nonce: $('#gemini_get_review_nonce').val()
+                            gemini_get_review_nonce: $('#gemini_get_review_nonce').val()
                         },
                         success: function(response) {
                             if (response.success) {
@@ -278,7 +282,7 @@ class Gemini_Translator_Admin {
                     data: {
                         action: ajaxAction,
                         post_id: postId,
-                        _wpnonce: nonce
+                        _wpnonce: nonce // This needs to be flexible for different nonce keys
                     },
                     success: function(response) {
                         if (response.success) {
@@ -311,7 +315,7 @@ class Gemini_Translator_Admin {
                     data: {
                         action: 'gemini_approve_translation',
                         post_id: postId,
-                        _wpnonce: $('#gemini_approve_nonce').val()
+                        gemini_approve_nonce: $('#gemini_approve_nonce').val()
                     },
                     success: function(response) {
                         if (response.success) {
@@ -339,12 +343,12 @@ class Gemini_Translator_Admin {
     }
 
     public function render_settings_page() {
-        // Handle clear log action
+        // Handle clear log action - This logic remains here for now, but we could move it.
         if ( isset( $_GET['action'] ) && $_GET['action'] === 'clear_log' ) {
             if ( isset( $_GET['_wpnonce'] ) && wp_verify_nonce( $_GET['_wpnonce'], 'clear_gemini_log_nonce' ) ) {
                 $this->clear_log_file();
                 // Redirect to avoid re-triggering on refresh
-                wp_safe_redirect( admin_url( 'admin.php?page=gemini-translator-settings&tab=logs&log_cleared=true' ) );
+                wp_safe_redirect( admin_url( 'admin.php?page=gemini-translator-settings&log_cleared=true' ) );
                 exit;
             }
         }
@@ -354,32 +358,24 @@ class Gemini_Translator_Admin {
 
 
         $this->options = get_option( 'gemini_translator_options' );
-        $active_tab = isset( $_GET['tab'] ) ? $_GET['tab'] : 'settings';
         ?>
         <div class="wrap">
-            <h2>Gemini Post Translator</h2>
+            <h2>Gemini Post Translator Settings</h2>
             <?php settings_errors('gemini-translator-notices'); ?>
 
-            <h2 class="nav-tab-wrapper">
-                <a href="admin.php?page=gemini-translator-settings&tab=settings" class="nav-tab <?php echo $active_tab == 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
-                <a href="admin.php?page=gemini-translator-settings&tab=logs" class="nav-tab <?php echo $active_tab == 'logs' ? 'nav-tab-active' : ''; ?>">Logs</a>
-            </h2>
-
-            <?php if ( $active_tab == 'settings' ) : ?>
-                <form method="post" action="options.php">
-                    <?php
-                        settings_fields( 'gemini_translator_option_group' );
-                        do_settings_sections( $this->plugin_name );
-                        submit_button();
-                    ?>
-                </form>
-            <?php else : ?>
-                <div class="card">
-                    <h3>Debug Log</h3>
-                    <p>This log shows the requests sent to the Gemini API and the responses received. Enable logging in the Settings tab.</p>
-                    <?php $this->render_log_viewer(); ?>
-                </div>
-            <?php endif; ?>
+            <form method="post" action="options.php">
+                <?php
+                    settings_fields( 'gemini_translator_option_group' );
+                    do_settings_sections( $this->plugin_name );
+                    submit_button();
+                ?>
+            </form>
+            
+            <?php
+                // We can add a button to clear the log from here as well.
+                $clear_log_url = wp_nonce_url( admin_url( 'admin.php?page=gemini-translator-settings&action=clear_log' ), 'clear_gemini_log_nonce' );
+                echo '<p><a href="' . esc_url( $clear_log_url ) . '" class="button button-danger">Clear Log File</a></p>';
+            ?>
         </div>
         <?php
     }
@@ -968,7 +964,7 @@ class Gemini_Translator_Admin {
 
     public function handle_translation_request() {
         // Verify nonce
-        check_ajax_referer( 'gemini_translate_post', 'nonce' );
+        check_ajax_referer( 'gemini_translate_post', 'gemini_translator_nonce' );
 
         if ( ! isset( $_POST['post_id'] ) ) {
             wp_send_json_error( array( 'message' => 'Error: Post ID not provided.' ) );
@@ -1052,7 +1048,7 @@ class Gemini_Translator_Admin {
      * Handles fetching data for the review modal.
      */
     public function handle_get_review_data() {
-        check_ajax_referer('gemini_get_review_data', 'nonce');
+        check_ajax_referer('gemini_get_review_data', 'gemini_get_review_nonce');
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
         if (empty($post_id)) {
@@ -1086,7 +1082,7 @@ class Gemini_Translator_Admin {
      * Handles approving a translation and updating the original post.
      */
     public function handle_approve_translation() {
-        check_ajax_referer('gemini_approve_translation', '_wpnonce');
+        check_ajax_referer('gemini_approve_translation', 'gemini_approve_nonce');
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
         if (empty($post_id)) {
@@ -1130,7 +1126,7 @@ class Gemini_Translator_Admin {
      * Handles restoring the original post from backup.
      */
     public function handle_restore_original() {
-        check_ajax_referer('gemini_restore_original', '_wpnonce');
+        check_ajax_referer('gemini_restore_original', 'gemini_restore_nonce');
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
 
         if (empty($post_id)) {
@@ -1398,7 +1394,7 @@ class Gemini_Translator_Admin {
                     data: {
                         action: 'gemini_translate_post',
                         post_id: currentPostId,
-                        nonce: $('#gemini_translator_nonce').val()
+                        gemini_translator_nonce: $('#gemini_translator_nonce').val()
                     },
                     timeout: 600000, // 10 minutes for chunked content processing
                     success: function(response) {
