@@ -11,13 +11,15 @@ class Gemini_Translator_Admin {
         $this->version = $version;
 
         add_action( 'admin_menu', array( $this, 'add_plugin_admin_menu' ) );
-        add_action( 'add_meta_boxes', array( $this, 'add_translate_meta_box' ) );
+        
+        // Register AJAX hooks
         add_action( 'wp_ajax_gemini_translate_post', array( $this, 'handle_translation_request' ) );
         add_action( 'wp_ajax_gemini_approve_translation', array( $this, 'handle_approve_translation' ) );
         add_action( 'wp_ajax_gemini_restore_original', array( $this, 'handle_restore_original' ) );
         add_action( 'wp_ajax_gemini_get_review_data', array( $this, 'handle_get_review_data' ) );
-        // The old save function is no longer needed with the new workflow
-        // add_action( 'wp_ajax_gemini_save_translated_post', array( $this, 'handle_save_translated_post' ) );
+
+        // Disable the old meta box for now as it's not compatible with the new workflow
+        // add_action( 'add_meta_boxes', array( $this, 'add_translate_meta_box' ) );
     }
 
     public function add_plugin_admin_menu() {
@@ -792,11 +794,14 @@ class Gemini_Translator_Admin {
     }
 
     /**
-     * Make API request to Gemini with retry logic
+     * Makes the actual API request to Google Gemini.
      */
     private function make_api_request($prompt, $api_key, $max_retries = 3) {
-        $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $api_key;
-        
+        // Corrected model name based on user-provided official documentation.
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$api_key}";
+
+        $this->log_message("Sending API request to: {$url}");
+
         $request_body = [
             'contents' => [['parts' => [['text' => $prompt]]]],
             'generationConfig' => [
@@ -814,7 +819,7 @@ class Gemini_Translator_Admin {
         for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
             $this->log_message("API Request attempt {$attempt}/{$max_retries}");
             
-            $response = wp_remote_post($api_url, [
+            $response = wp_remote_post($url, [
                 'body' => json_encode($request_body),
                 'headers' => ['Content-Type' => 'application/json'],
                 'timeout' => 300 // 5 minutes per request
