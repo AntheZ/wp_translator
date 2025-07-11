@@ -851,7 +851,7 @@ Content Chunk:
         }
 
         // Using model gemini-2.5-flash as per memory
-        $model = $this->options['model_name'] ?? 'gemini-2.5-flash-latest';
+        $model = $this->options['model_name'] ?? 'gemini-2.5-flash';
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$api_key}";
 
         $this->log_message("Post ID $post_id: Preparing API request.");
