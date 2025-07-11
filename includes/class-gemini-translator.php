@@ -26,7 +26,7 @@ class Gemini_Translator {
             post_id bigint(20) UNSIGNED NOT NULL,
             original_title text NOT NULL,
             original_content longtext NOT NULL,
-            created_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
+            saved_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY post_id (post_id)
         ) $charset_collate;";
@@ -36,10 +36,11 @@ class Gemini_Translator {
             post_id bigint(20) UNSIGNED NOT NULL,
             translated_title text NOT NULL,
             translated_content longtext NOT NULL,
+            seo_title text,
             meta_description text,
             meta_keywords text,
             status varchar(20) DEFAULT 'pending_review' NOT NULL,
-            created_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
+            translated_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
             updated_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY post_id (post_id)

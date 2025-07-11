@@ -17,6 +17,8 @@ class Gemini_Translator_Admin {
         add_action( 'wp_ajax_gemini_approve_translation', array( $this, 'handle_approve_translation' ) );
         add_action( 'wp_ajax_gemini_restore_original', array( $this, 'handle_restore_original' ) );
         add_action( 'wp_ajax_gemini_get_review_data', array( $this, 'handle_get_review_data' ) );
+        add_action( 'wp_ajax_gemini_get_full_log', array( $this, 'handle_get_full_log' ) );
+        add_action( 'wp_ajax_gemini_clear_log', array( $this, 'handle_clear_log_ajax' ) );
 
         // Disable the old meta box for now as it's not compatible with the new workflow
         // add_action( 'add_meta_boxes', array( $this, 'add_translate_meta_box' ) );
@@ -127,7 +129,7 @@ class Gemini_Translator_Admin {
                 <div id="file-log-container" style="flex: 1;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3>Full Log (from debug.log)</h3>
-                        <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin.php?page=gemini-translator&action=clear_log'), 'clear_gemini_log_nonce')); ?>" class="button button-secondary">Clear Full Log</a>
+                        <a href="#" id="clear-full-log" class="button button-secondary">Clear Full Log</a>
                     </div>
                     <?php $this->render_log_viewer(); ?>
                 </div>
@@ -142,12 +144,22 @@ class Gemini_Translator_Admin {
                     <div style="flex: 1;">
                         <h3>Original</h3>
                         <h4 id="review-original-title"></h4>
-                        <div id="review-original-content" style="height: 50vh; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; background: #f9f9f9;"></div>
+                        <div id="review-original-content" style="height: 45vh; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; background: #f9f9f9;"></div>
                     </div>
                     <div style="flex: 1;">
-                        <h3>Translated</h3>
+                        <h3>Translated (SEO Optimized)</h3>
                         <h4 id="review-translated-title"></h4>
-                        <div id="review-translated-content" style="height: 50vh; overflow-y: scroll; border: 1px solid #ddd; padding: 10px;"></div>
+                        <div id="review-translated-content" style="height: 45vh; overflow-y: scroll; border: 1px solid #ddd; padding: 10px;"></div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 20px; margin-top: 15px;">
+                    <div style="flex: 1;">
+                        <strong>Meta Description:</strong>
+                        <p id="review-meta-description" style="padding: 5px; background: #f9f9f9; border: 1px solid #ddd; min-height: 40px;"></p>
+                    </div>
+                    <div style="flex: 1;">
+                        <strong>Meta Keywords:</strong>
+                        <p id="review-meta-keywords" style="padding: 5px; background: #f9f9f9; border: 1px solid #ddd; min-height: 40px;"></p>
                     </div>
                 </div>
                 <div style="margin-top: 20px; text-align: right;">
@@ -178,6 +190,7 @@ class Gemini_Translator_Admin {
                 button.prop('disabled', true);
                 $('#batch-progress').show();
                 $('#batch-log').html('');
+                logMessage('Starting batch translation... This might take a while.', 'blue');
 
                 var totalPosts = postIds.length;
                 var processedCount = 0;
@@ -186,10 +199,9 @@ class Gemini_Translator_Admin {
                 function processNextPost() {
                     if (postIds.length === 0) {
                         logMessage('--------------------------------------------------', 'blue');
-                        logMessage('Batch processing complete! Please refresh the page to see status updates.', 'blue');
+                        logMessage('Batch processing complete! The page will now reload.', 'blue');
                         logMessage('--------------------------------------------------', 'blue');
-                        button.prop('disabled', false);
-                        $('#batch-progress-status').text('Batch processing complete!');
+                        setTimeout(function() { location.reload(); }, 2000);
                         return;
                     }
 
@@ -210,18 +222,18 @@ class Gemini_Translator_Admin {
                         },
                         success: function(response) {
                             if (response.success) {
-                                if (response.data.status === 'already_in_target_language') {
-                                    logMessage('Post ' + postId + ': Skipped (already in target language).', 'blue');
-                                } else {
-                                    logMessage('Post ' + postId + ': Translation submitted for review.', 'green');
-                                }
+                                logMessage('Post ' + postId + ': ' + response.data.message, 'green');
                             } else {
                                 logMessage('Post ' + postId + ': Translation failed. ' + response.data.message, 'red');
                             }
                             setTimeout(processNextPost, batch_delay);
                         },
-                        error: function() {
-                            logMessage('Post ' + postId + ': An unknown AJAX error occurred.', 'red');
+                        error: function(jqXHR) {
+                            let errorMsg = 'Post ' + postId + ': An unknown AJAX error occurred.';
+                            if (jqXHR.responseJSON && jqXHR.responseJSON.data && jqXHR.responseJSON.data.message) {
+                                errorMsg = 'Post ' + postId + ': Error: ' + jqXHR.responseJSON.data.message;
+                            }
+                            logMessage(errorMsg, 'red');
                             setTimeout(processNextPost, batch_delay);
                         }
                     });
@@ -235,7 +247,7 @@ class Gemini_Translator_Admin {
             });
 
             // --- Row Action Logic (Review/Restore/Translate) ---
-            $('tr').on('click', 'a.row-action', function(e) {
+            $(document).on('click', 'a.row-action', function(e) {
                 e.preventDefault();
                 
                 var link = $(this);
@@ -275,8 +287,10 @@ class Gemini_Translator_Admin {
                             if (response.success) {
                                 $('#review-original-title').text(response.data.original.title);
                                 $('#review-original-content').html(response.data.original.content);
-                                $('#review-translated-title').text(response.data.translated.title);
+                                $('#review-translated-title').text(response.data.translated.seo_title);
                                 $('#review-translated-content').html(response.data.translated.content);
+                                $('#review-meta-description').text(response.data.translated.meta_description);
+                                $('#review-meta-keywords').text(response.data.translated.meta_keywords);
                                 $('#gemini-review-modal').show();
                             } else {
                                 alert('Error: ' + response.data.message);
@@ -355,6 +369,59 @@ class Gemini_Translator_Admin {
                 });
             });
 
+            // --- Log Viewer Logic ---
+            function loadFullLog() {
+                var logContent = $('#full-log-content');
+                logContent.text('Loading log...');
+                 $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'gemini_get_full_log',
+                        nonce: $('#gemini_get_log_nonce').val()
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            logContent.text(response.data);
+                            logContent.scrollTop(logContent[0].scrollHeight);
+                        } else {
+                            logContent.text('Error: ' + response.data.message);
+                        }
+                    },
+                    error: function() {
+                        logContent.text('An unknown AJAX error occurred while fetching the log.');
+                    }
+                });
+            }
+
+            $('#clear-full-log').on('click', function(e) {
+                e.preventDefault();
+                if (!confirm('Are you sure you want to clear the entire debug log? This cannot be undone.')) {
+                    return;
+                }
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'gemini_clear_log',
+                        nonce: $('#gemini_clear_log_nonce').val()
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            loadFullLog();
+                        } else {
+                            alert('Error: ' + response.data.message);
+                        }
+                    },
+                    error: function() {
+                        alert('An unknown AJAX error occurred while clearing the log.');
+                    }
+                });
+            });
+
+            // Initial log load
+            loadFullLog();
+
         });
         </script>
         <?php
@@ -363,22 +430,14 @@ class Gemini_Translator_Admin {
         wp_nonce_field( 'gemini_approve_translation', 'gemini_approve_nonce', false );
         wp_nonce_field( 'gemini_restore_original', 'gemini_restore_nonce', false );
         wp_nonce_field( 'gemini_get_review_data', 'gemini_get_review_nonce', false );
+        wp_nonce_field( 'gemini_get_full_log', 'gemini_get_log_nonce', false );
+        wp_nonce_field( 'gemini_clear_log', 'gemini_clear_log_nonce', false );
     }
 
     public function render_settings_page() {
-        // Clear log action moved to the dashboard, but we keep the redirect handler
-        if ( isset( $_GET['action'] ) && $_GET['action'] === 'clear_log' ) {
-            if ( isset( $_GET['_wpnonce'] ) && wp_verify_nonce( $_GET['_wpnonce'], 'clear_gemini_log_nonce' ) ) {
-                $this->clear_log_file();
-                // Redirect to avoid re-triggering on refresh
-                wp_safe_redirect( admin_url( 'admin.php?page=gemini-translator&log_cleared=true' ) );
-                exit;
-            }
-        }
         if ( isset( $_GET['log_cleared'] ) && $_GET['log_cleared'] === 'true' ) {
              add_settings_error('gemini-translator-notices', 'log-cleared', 'Log file has been cleared.', 'updated');
         }
-
 
         $this->options = get_option( 'gemini_translator_options' );
         ?>
@@ -398,18 +457,7 @@ class Gemini_Translator_Admin {
     }
 
     private function render_log_viewer() {
-        $upload_dir = wp_upload_dir();
-        $log_file = $upload_dir['basedir'] . '/gemini-translator-logs/debug.log';
-        $log_content = 'Log file not found. Make sure logging is enabled and a translation has been attempted.';
-
-        if ( file_exists( $log_file ) ) {
-            $log_content = file_get_contents( $log_file );
-            if ( empty( $log_content ) ) {
-                $log_content = 'Log file is empty.';
-            }
-        }
-        
-        echo '<textarea readonly style="width: 100%; height: 300px; background: #fff; white-space: pre; font-family: monospace;">' . esc_textarea( $log_content ) . '</textarea>';
+        echo '<textarea readonly id="full-log-content" style="width: 100%; height: 300px; background: #fff; white-space: pre; font-family: monospace; font-size: 12px;">Loading...</textarea>';
     }
 
     public function register_settings() {
@@ -517,9 +565,14 @@ class Gemini_Translator_Admin {
         echo '<p class="description">The delay in seconds between each request in a batch process. Default is 6 seconds to stay within the free tier limit (10 RPM).</p>';
     }
 
-    private function clear_log_file() {
+    private function get_log_file_path() {
         $upload_dir = wp_upload_dir();
-        $log_file = $upload_dir['basedir'] . '/gemini-translator-logs/debug.log';
+        $log_dir = $upload_dir['basedir'] . '/gemini-translator-logs';
+        return $log_dir . '/debug.log';
+    }
+
+    private function clear_log_file() {
+        $log_file = $this->get_log_file_path();
         if ( file_exists( $log_file ) ) {
             file_put_contents( $log_file, '' );
         }
@@ -734,56 +787,49 @@ class Gemini_Translator_Admin {
         
         $this->log_message("Content split into {$total_chunks} chunks for translation");
         
-        if ($total_chunks === 1) {
-            // Single chunk - use existing method
-            return $this->translate_single_chunk($title, $chunks[0], $target_language, $api_key, true);
-        }
-        
-        // Multiple chunks - translate each separately
         $translated_chunks = [];
+        $final_seo_title = '';
         $final_meta_description = '';
         $final_meta_keywords = '';
-        $translated_title = '';
+        $final_translated_title = '';
         
         for ($i = 0; $i < $total_chunks; $i++) {
             $chunk_number = $i + 1;
             $this->log_message("Translating chunk {$chunk_number}/{$total_chunks} (size: " . strlen($chunks[$i]) . " chars)");
             
-            // For first chunk, include title and request meta data
-            $include_title = ($i === 0);
+            $is_first_chunk = ($i === 0);
             $chunk_result = $this->translate_single_chunk(
-                $include_title ? $title : '', 
+                $is_first_chunk ? $title : '', 
                 $chunks[$i], 
                 $target_language, 
                 $api_key, 
-                $include_title
+                $is_first_chunk
             );
             
-            if (!$chunk_result || !$chunk_result['success']) {
+            if (!$chunk_result['success']) {
                 $this->log_message("Failed to translate chunk {$chunk_number}: " . ($chunk_result['message'] ?? 'Unknown error'));
                 return ['success' => false, 'message' => "Failed to translate content chunk {$chunk_number}"];
             }
             
             $chunk_data = $chunk_result['data'];
             
-            // Store title and meta from first chunk
-            if ($i === 0 && !empty($chunk_data['translated_title'])) {
-                $translated_title = $chunk_data['translated_title'];
+            if ($is_first_chunk) {
+                $final_translated_title = $chunk_data['translated_title'] ?? $title;
+                $final_seo_title = $chunk_data['seo_title'] ?? $final_translated_title;
                 $final_meta_description = $chunk_data['meta_description'] ?? '';
                 $final_meta_keywords = $chunk_data['meta_keywords'] ?? '';
             }
             
-            $translated_chunks[] = $chunk_data['translated_content'];
+            $translated_chunks[] = $chunk_data['translated_content'] ?? '';
             
             $this->log_message("Successfully translated chunk {$chunk_number}");
             
-            // Delay between chunks to respect rate limits
             if ($i < $total_chunks - 1) {
-                sleep(3); // Increased delay for stability
+                $delay = (int) ($this->options['batch_delay'] ?? 3);
+                sleep($delay > 0 ? $delay : 3);
             }
         }
         
-        // Combine all translated chunks
         $combined_content = implode("\n\n", $translated_chunks);
         
         $this->log_message("All chunks translated successfully. Combined content size: " . strlen($combined_content) . " chars");
@@ -791,161 +837,132 @@ class Gemini_Translator_Admin {
         return [
             'success' => true,
             'data' => [
-                'translated_title' => $translated_title ?: $title,
+                'translated_title' => $final_translated_title,
+                'seo_title' => $final_seo_title,
                 'translated_content' => $combined_content,
                 'meta_description' => $final_meta_description,
                 'meta_keywords' => $final_meta_keywords
-            ],
-            'chunks_count' => $total_chunks // Pass the total chunks count
+            ]
         ];
     }
     
     /**
-     * Translate a single chunk with simplified prompt for chunks
+     * Translate a single chunk with a specific prompt.
      */
-    private function translate_single_chunk($title, $content, $target_language, $api_key, $include_meta = true) {
-        // Optimize content
+    private function translate_single_chunk($title, $content, $target_language, $api_key, $is_first_chunk) {
         $content = $this->optimize_content_for_api($content);
         
-        // Build simplified prompt for better output size control
-        if ($include_meta && !empty($title)) {
-            // Full prompt for first chunk with title and meta
-            $prompt = "Translate and modernize this blog post to {$target_language}. Modernize HTML for Gutenberg (remove inline styles, preserve tables). Generate meta description (155 chars) and 5 keywords.\n\n";
-            $prompt .= "Output as JSON: {\"translated_title\": \"...\", \"translated_content\": \"...\", \"meta_description\": \"...\", \"meta_keywords\": \"...\"}\n\n";
-            $prompt .= "Title: {$title}\n\nContent:\n{$content}";
+        if ($is_first_chunk && !empty($title)) {
+            $prompt = "You are an expert SEO and a professional translator for a WordPress blog.
+Translate the following blog post to {$target_language}.
+
+Tasks:
+1. Translate the original title.
+2. Create a new, SEO-optimized title (shorter, more engaging, in {$target_language}).
+3. Translate the content, preserving all HTML tags.
+4. Generate a concise meta description (max 160 characters, in {$target_language}).
+5. Generate 5-7 relevant meta keywords (comma-separated, in {$target_language}).
+
+The response MUST be a raw JSON object with NO markdown formatting.
+JSON structure: {\"translated_title\": \"...\", \"seo_title\": \"...\", \"translated_content\": \"...\", \"meta_description\": \"...\", \"meta_keywords\": \"...\"}
+
+Original Post:
+Title: {$title}
+
+Content:
+{$content}";
         } else {
-            // Simplified prompt for content chunks
-            $prompt = "Translate this content chunk to {$target_language}. Modernize HTML for Gutenberg (remove inline styles, preserve tables exactly).\n\n";
-            $prompt .= "Output as JSON: {\"translated_content\": \"...\"}\n\n";
-            $prompt .= "Content:\n{$content}";
+            $prompt = "You are a professional translator. Translate the following HTML content chunk to {$target_language}.
+Preserve all HTML tags perfectly.
+The response MUST be a raw JSON object with NO markdown formatting.
+JSON structure: {\"translated_content\": \"...\"}
+
+Content Chunk:
+{$content}";
         }
         
-        return $this->make_api_request($prompt, $api_key, 3);
+        $response_body = $this->call_gemini_api($prompt, 0);
+
+        if (is_wp_error($response_body)) {
+            return ['success' => false, 'message' => $response_body->get_error_message()];
+        }
+
+        $json_data = $this->extract_json_from_response($response_body);
+        
+        if (!$json_data) {
+            $error_message = "Failed to extract valid JSON from API response.";
+            $this->log_message($error_message . " Response: " . substr($response_body, 0, 500));
+            return ['success' => false, 'message' => $error_message];
+        }
+
+        return ['success' => true, 'data' => $json_data];
     }
 
     /**
      * Makes the actual API request to Google Gemini.
      */
-    private function make_api_request($prompt, $api_key, $max_retries = 3) {
-        // Corrected model name based on user-provided official documentation.
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$api_key}";
+    private function call_gemini_api($prompt, $post_id, $max_retries = 2) {
+        if ( empty( $this->options ) ) {
+            $this->options = get_option( 'gemini_translator_options' );
+        }
+        $api_key = $this->options['api_key'] ?? null;
+        if(!$api_key) {
+            return new WP_Error('api_error', 'API Key is not configured.');
+        }
 
-        $this->log_message("--- Sending API Request ---");
-        $this->log_message("URL: {$url}");
-        $this->log_message("Prompt: " . json_encode($prompt, JSON_PRETTY_PRINT));
+        // Using model gemini-1.5-flash as per memory
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={$api_key}";
+
+        $this->log_message("Post ID $post_id: Preparing API request.");
 
         $request_body = [
             'contents' => [
                 ['parts' => [['text' => $prompt]]]
             ],
             'generationConfig' => [
-                'temperature' => 0.3,
-                'topP' => 0.8,
-                'topK' => 40,
-                'maxOutputTokens' => 65536,
-                'responseMimeType' => 'text/plain'
+                'temperature' => 0.4,
+                'topP' => 0.9,
+                'topK' => 32,
+                'responseMimeType' => 'application/json'
             ]
         ];
 
         for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
-            $this->log_message("API Request attempt {$attempt}/{$max_retries}");
+            $this->log_message("Post ID $post_id: API Request attempt {$attempt}/{$max_retries}");
             
             $response = wp_remote_post($url, [
                 'body' => json_encode($request_body),
                 'headers' => ['Content-Type' => 'application/json'],
-                'timeout' => 300, // 5 minutes
+                'timeout' => 300,
             ]);
 
-            if (is_wp_error($response)) {
-                $this->log_message("API Error (WP_Error): " . $response->get_error_message());
-                continue; // Try next attempt
+            if (is_wp_Error($response)) {
+                $this->log_message("Post ID $post_id: WP_Error on attempt {$attempt}: " . $response->get_error_message());
+                if ($attempt < $max_retries) { sleep(5); continue; }
+                return $response;
             }
 
             $response_code = wp_remote_retrieve_response_code($response);
             $response_body = wp_remote_retrieve_body($response);
             
-            $this->log_message("API Response Code: {$response_code}");
-            $this->log_message("API Response Body: " . $response_body);
+            $this->log_message("Post ID $post_id: API Response Code on attempt {$attempt}: {$response_code}");
 
             if ($response_code === 200) {
-                return $response_body; // Success
-            }
-
-            if ($response_code === 429) {
-                // Rate limit hit
-                $this->log_message("Rate limit hit. Waiting before retry...");
-                if ($attempt < $max_retries) {
-                    sleep(10 * $attempt);
-                    continue;
+                $decoded_response = json_decode($response_body, true);
+                if (json_last_error() === JSON_ERROR_NONE && isset($decoded_response['candidates'][0]['content']['parts'][0]['text'])) {
+                     $this->log_message("Post ID $post_id: Successfully received and decoded API response.");
+                     return $decoded_response['candidates'][0]['content']['parts'][0]['text'];
+                } else {
+                     $this->log_message("Post ID $post_id: Failed to parse valid content from 200 response. Body: " . substr($response_body, 0, 500));
                 }
-                return ['success' => false, 'message' => 'Rate limit exceeded. Please try again later.'];
             }
-
-            if ($response_code !== 200) {
-                $error_message = "HTTP Error {$response_code}: " . substr($response_body, 0, 500);
-                $this->log_message($error_message);
-                
-                if ($attempt < $max_retries) {
-                    sleep(2 * $attempt);
-                    continue;
-                }
-                
-                return ['success' => false, 'message' => $error_message];
-            }
-
-            // Parse the response
-            $decoded_response = json_decode($response_body, true);
             
-            if (json_last_error() !== JSON_ERROR_NONE || !$decoded_response) {
-                $error_message = "Failed to decode API response as JSON. Raw response: " . substr($response_body, 0, 1000);
-                $this->log_message($error_message);
-                
-                if ($attempt < $max_retries) {
-                    sleep(2 * $attempt);
-                    continue;
-                }
-                
-                return ['success' => false, 'message' => 'Invalid JSON response from API'];
-            }
-
-            // Extract content from Gemini response structure
-            if (!isset($decoded_response['candidates'][0]['content']['parts'][0]['text'])) {
-                $error_message = "Unexpected response structure from API";
-                $this->log_message($error_message);
-                $this->log_message("Full response structure: " . json_encode($decoded_response, JSON_PRETTY_PRINT));
-                
-                if ($attempt < $max_retries) {
-                    sleep(2 * $attempt);
-                    continue;
-                }
-                
-                return ['success' => false, 'message' => $error_message];
-            }
-
-            $content = $decoded_response['candidates'][0]['content']['parts'][0]['text'];
-            $this->log_message("Extracted content: " . substr($content, 0, 1000) . (strlen($content) > 1000 ? '...' : ''));
-
-            // Try to extract JSON from the response
-            $json_data = $this->extract_json_from_response($content);
-            
-            if (!$json_data) {
-                $error_message = "Failed to extract valid JSON from API response. Content: " . substr($content, 0, 1000);
-                $this->log_message($error_message);
-                
-                if ($attempt < $max_retries) {
-                    sleep(2 * $attempt);
-                    continue;
-                }
-                
-                return ['success' => false, 'message' => 'API returned invalid JSON format'];
-            }
-
-            $this->log_message("Successfully parsed JSON response");
-            return ['success' => true, 'data' => $json_data];
+            $this->log_message("Post ID $post_id: API attempt {$attempt} failed. Body: " . substr($response_body, 0, 500));
+            if ($attempt < $max_retries) { sleep(5 + $attempt * 2); }
         }
 
-        $this->log_message("API request failed after {$max_retries} attempts.");
-        return ['success' => false, 'message' => "All {$max_retries} attempts failed"];
+        $this->log_message("Post ID $post_id: API request failed after all attempts.");
+        return new WP_Error('api_error', "API request failed after {$max_retries} attempts. Last code: {$response_code}.");
     }
 
     /**
@@ -997,85 +1014,102 @@ class Gemini_Translator_Admin {
     }
 
     public function handle_translation_request() {
-        // Verify nonce
-        check_ajax_referer( 'gemini_translate_post', 'gemini_translator_nonce' );
+        check_ajax_referer('gemini_translate_post', 'gemini_translator_nonce');
 
-        if ( ! isset( $_POST['post_id'] ) ) {
-            wp_send_json_error( array( 'message' => 'Error: Post ID not provided.' ) );
+        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+        if (!$post_id) {
+            wp_send_json_error(['message' => 'Error: Post ID not provided.']);
+            return;
         }
 
-        $post_id = intval( $_POST['post_id'] );
-        $post = get_post( $post_id );
-
-        if ( ! $post ) {
-            wp_send_json_error( array( 'message' => 'Error: Post not found.' ) );
+        $original_post = get_post($post_id);
+        if (!$original_post) {
+            wp_send_json_error(['message' => 'Post not found.'], 404);
+            return;
         }
 
-        // Get API Key and target language from settings
-        $options = get_option( 'gemini_translator_options' );
-        $api_key = $options['api_key'] ?? '';
-        $target_language = $options['target_language'] ?? 'Ukrainian';
+        $this->options = get_option('gemini_translator_options');
+        $api_key = $this->options['api_key'] ?? '';
+        $target_language = $this->options['target_language'] ?? 'Ukrainian';
 
-        if ( empty( $api_key ) ) {
-            wp_send_json_error( array( 'message' => 'Error: API key is not set.' ) );
+        if (empty($api_key)) {
+            wp_send_json_error(['message' => 'API Key is not configured in settings.']);
+            return;
         }
+
+        $content_to_translate = apply_filters('the_content', $original_post->post_content);
+        $title_to_translate = $original_post->post_title;
+
+        $this->log_message("--- Starting SEO translation for post ID: $post_id ---");
+
+        $translation_result = $this->translate_chunked_content($title_to_translate, $content_to_translate, $target_language, $api_key);
+
+        if (!$translation_result['success']) {
+            $error_message = $translation_result['message'] ?? 'An unknown error occurred during translation.';
+            $this->log_message("Translation failed for post ID $post_id: " . $error_message);
+            wp_send_json_error(['message' => $error_message]);
+            return;
+        }
+
+        $translated_data = $translation_result['data'];
         
+        $this->log_message("Saving SEO translation for post ID $post_id.");
+        $this->save_translation(
+            $post_id,
+            $translated_data['translated_title'],
+            $translated_data['translated_content'],
+            $original_post->post_title,
+            $original_post->post_content,
+            $translated_data['seo_title'],
+            $translated_data['meta_description'],
+            $translated_data['meta_keywords']
+        );
+
+        wp_send_json_success(['message' => "Post ID $post_id translated with SEO data and is pending review."]);
+    }
+    
+    private function save_translation($post_id, $translated_title, $translated_content, $original_title, $original_content, $seo_title, $meta_description, $meta_keywords) {
         global $wpdb;
-        $table_originals = $wpdb->prefix . 'gemini_originals';
-        $table_translations = $wpdb->prefix . 'gemini_translations';
+        $originals_table = $wpdb->prefix . 'gemini_originals';
+        $translations_table = $wpdb->prefix . 'gemini_translations';
 
-        // 1. Create a backup if it doesn't exist
-        $backup_exists = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $table_originals WHERE post_id = %d", $post_id ) );
+        $wpdb->replace($originals_table, [
+            'post_id' => $post_id,
+            'original_title' => $original_title,
+            'original_content' => $original_content,
+            'saved_at' => current_time('mysql', 1),
+        ]);
 
-        if ( ! $backup_exists ) {
-            $wpdb->insert(
-                $table_originals,
-                [
-                    'post_id' => $post_id,
-                    'original_title' => $post->post_title,
-                    'original_content' => $post->post_content,
-                    'created_at' => current_time( 'mysql' ),
-                ],
-                ['%d', '%s', '%s', '%s']
-            );
-        }
+        $wpdb->replace($translations_table, [
+            'post_id' => $post_id,
+            'translated_title' => $this->sanitize_translation_output($translated_title),
+            'translated_content' => $this->sanitize_translation_output($translated_content),
+            'seo_title' => $this->sanitize_translation_output($seo_title),
+            'meta_description' => $this->sanitize_translation_output($meta_description),
+            'meta_keywords' => $this->sanitize_translation_output($meta_keywords),
+            'status' => 'pending_review',
+            'translated_at' => current_time('mysql', 1),
+            'updated_at' => current_time('mysql', 1),
+        ]);
+        $this->log_message("Saved original and SEO translation for Post ID: {$post_id}");
+    }
 
-        // 2. Perform the translation
-        try {
-            $this->log_message( "Starting translation for post ID: {$post_id}" );
-            $translation_result = $this->translate_single_chunk($post->post_title, $post->post_content, $target_language, $api_key);
-
-            if (isset($translation_result['error'])) {
-                 throw new Exception($translation_result['error']);
-            }
-            
-            if ($translation_result['status'] === 'already_in_target_language') {
-                wp_send_json_success( ['status' => 'already_in_target_language'] );
-            }
-
-            // 3. Save translation to our custom table
-            $wpdb->replace(
-                $table_translations,
-                [
-                    'post_id' => $post_id,
-                    'translated_title' => $translation_result['translated_title'],
-                    'translated_content' => $translation_result['translated_content'],
-                    'meta_description' => $translation_result['meta_description'],
-                    'meta_keywords' => $translation_result['meta_keywords'],
-                    'status' => 'pending_review',
-                    'created_at' => current_time( 'mysql' ),
-                    'updated_at' => current_time( 'mysql' ),
-                ],
-                ['%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
-            );
-
-            $this->log_message( "Successfully saved translation for post ID: {$post_id} for review." );
-            wp_send_json_success( [ 'status' => 'pending_review', 'message' => 'Translation complete. Ready for review.' ] );
-
-        } catch ( Exception $e ) {
-            $this->log_message( "Error translating post ID {$post_id}: " . $e->getMessage() );
-            wp_send_json_error( array( 'message' => $e->getMessage() ) );
-        }
+    /**
+     * Sanitizes the translated output to prevent unwanted characters.
+     * WordPress's kses functions might be too aggressive, so this is a custom, more lenient sanitizer.
+     *
+     * @param string $text The text to sanitize.
+     * @return string The sanitized text.
+     */
+    private function sanitize_translation_output($text) {
+        // This is a basic sanitizer. It removes script tags and some event handlers.
+        // For a production environment, a more robust library like HTML Purifier might be needed.
+        // Remove script tags
+        $text = preg_replace('#<script(.*?)>(.*?)</script>#is', '', $text);
+        // Remove on* attributes
+        $text = preg_replace('/(\s)on\w+.*?=\s*".*?"/is', '$1', $text);
+        $text = preg_replace('/(\s)on\w+.*?=\s*\'.*?\'/is', '$1', $text);
+        return $text;
     }
 
     /**
@@ -1094,7 +1128,7 @@ class Gemini_Translator_Admin {
         $table_translations = $wpdb->prefix . 'gemini_translations';
 
         $original = $wpdb->get_row($wpdb->prepare("SELECT original_title, original_content FROM $table_originals WHERE post_id = %d", $post_id));
-        $translated = $wpdb->get_row($wpdb->prepare("SELECT translated_title, translated_content FROM $table_translations WHERE post_id = %d", $post_id));
+        $translated = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_translations WHERE post_id = %d", $post_id));
 
         if (!$original || !$translated) {
             wp_send_json_error(['message' => 'Could not find original and translated versions for this post.']);
@@ -1108,6 +1142,9 @@ class Gemini_Translator_Admin {
             'translated' => [
                 'title' => $translated->translated_title,
                 'content' => $translated->translated_content,
+                'seo_title' => $translated->seo_title,
+                'meta_description' => $translated->meta_description,
+                'meta_keywords' => $translated->meta_keywords,
             ]
         ]);
     }
@@ -1136,14 +1173,27 @@ class Gemini_Translator_Admin {
 
         $post_data = [
             'ID' => $post_id,
-            'post_title' => $translation->translated_title,
+            'post_title' => $translation->seo_title, // Use the SEO optimized title
             'post_content' => $translation->translated_content,
         ];
 
-        // Update the post
-        wp_update_post($post_data);
+        $result = wp_update_post($post_data, true);
 
-        // Update our translation status to 'completed'
+        if (is_wp_error($result)) {
+            $this->log_message("Error updating post {$post_id}: " . $result->get_error_message());
+            wp_send_json_error(['message' => 'Failed to update post: ' . $result->get_error_message()]);
+            return;
+        }
+
+        // Update Yoast SEO meta fields
+        if (!empty($translation->meta_description)) {
+            update_post_meta($post_id, '_yoast_wpseo_metadesc', $translation->meta_description);
+        }
+        if (!empty($translation->meta_keywords)) {
+            $keywords = explode(',', $translation->meta_keywords);
+            update_post_meta($post_id, '_yoast_wpseo_focuskw', trim($keywords[0]));
+        }
+
         $wpdb->update(
             $table_translations,
             ['status' => 'completed', 'updated_at' => current_time('mysql')],
@@ -1191,6 +1241,54 @@ class Gemini_Translator_Admin {
 
         $this->log_message("Successfully restored original for Post ID: {$post_id}");
         wp_send_json_success(['message' => 'Post restored to its original version.']);
+    }
+
+    /**
+     * AJAX handler to get the full log file content.
+     */
+    public function handle_get_full_log() {
+        check_ajax_referer('gemini_get_full_log', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Permission denied.'], 403);
+            return;
+        }
+    
+        $log_file = $this->get_log_file_path();
+    
+        if (!file_exists($log_file) || filesize($log_file) === 0) {
+            wp_send_json_success('Log file is empty or does not exist.');
+            return;
+        }
+        
+        if (!is_readable($log_file)) {
+            wp_send_json_error(['message' => 'Log file is not readable. Check file permissions.']);
+            return;
+        }
+    
+        $max_size = 50 * 1024; // 50 KB
+        $file_size = filesize($log_file);
+        $offset = max(0, $file_size - $max_size);
+    
+        $content = file_get_contents($log_file, false, null, $offset);
+        if ($content === false) {
+            wp_send_json_error(['message' => 'Could not read log file.']);
+            return;
+        }
+        
+        wp_send_json_success(esc_html($content));
+    }
+
+    /**
+     * AJAX handler to clear the log file.
+     */
+    public function handle_clear_log_ajax() {
+        check_ajax_referer('gemini_clear_log', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Permission denied.'], 403);
+            return;
+        }
+        $this->clear_log_file();
+        wp_send_json_success(['message' => 'Log file cleared.']);
     }
 
     /*
