@@ -73,6 +73,25 @@ class Gemini_Translator_Admin {
             <form id="posts-filter" method="get">
                 <input type="hidden" name="page" value="<?php echo esc_attr($_REQUEST['page']) ?>" />
                 <input type="hidden" name="status" value="<?php echo esc_attr($current_status); ?>" />
+                
+                <div class="tablenav top">
+                    <div class="alignleft actions">
+                        <?php
+                        wp_dropdown_categories([
+                            'show_option_all' => 'All Categories',
+                            'taxonomy'        => 'category',
+                            'name'            => 'cat',
+                            'orderby'         => 'name',
+                            'selected'        => isset($_REQUEST['cat']) ? (int)$_REQUEST['cat'] : 0,
+                            'hierarchical'    => true,
+                            'show_count'      => true,
+                            'hide_empty'      => true,
+                        ]);
+                        submit_button('Filter', 'button', 'filter_action', false);
+                        ?>
+                    </div>
+                </div>
+
                 <?php
                 $list_table->display();
                 ?>
