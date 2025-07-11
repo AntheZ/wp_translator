@@ -15,6 +15,7 @@ class Gemini_Translator_Admin {
         add_action( 'wp_ajax_gemini_translate_post', array( $this, 'handle_translation_request' ) );
         add_action( 'wp_ajax_gemini_approve_translation', array( $this, 'handle_approve_translation' ) );
         add_action( 'wp_ajax_gemini_restore_original', array( $this, 'handle_restore_original' ) );
+        add_action( 'wp_ajax_gemini_get_review_data', array( $this, 'handle_get_review_data' ) );
         // The old save function is no longer needed with the new workflow
         // add_action( 'wp_ajax_gemini_save_translated_post', array( $this, 'handle_save_translated_post' ) );
     }
@@ -106,6 +107,31 @@ class Gemini_Translator_Admin {
                 <div id="batch-log" style="margin-top: 10px; height: 200px; overflow-y: scroll; border: 1px solid #ccc; padding: 5px; background: #f7f7f7;"></div>
             </div>
         </div>
+
+        <!-- Review Modal Structure -->
+        <div id="gemini-review-modal" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000;">
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 1200px; background: #fff; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
+                <h2 style="margin-top:0;">Review Translation</h2>
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 1;">
+                        <h3>Original</h3>
+                        <h4 id="review-original-title"></h4>
+                        <div id="review-original-content" style="height: 50vh; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; background: #f9f9f9;"></div>
+                    </div>
+                    <div style="flex: 1;">
+                        <h3>Translated</h3>
+                        <h4 id="review-translated-title"></h4>
+                        <div id="review-translated-content" style="height: 50vh; overflow-y: scroll; border: 1px solid #ddd; padding: 10px;"></div>
+                    </div>
+                </div>
+                <div style="margin-top: 20px; text-align: right;">
+                    <button class="button" id="review-cancel">Cancel</button>
+                    <button class="button button-primary" id="review-approve">Approve & Save</button>
+                    <input type="hidden" id="review-post-id" value="">
+                </div>
+            </div>
+        </div>
+
         <script type="text/javascript">
         jQuery(document).ready(function($) {
             
@@ -181,39 +207,78 @@ class Gemini_Translator_Admin {
                 processNextPost();
             });
 
-            // --- Row Action Logic (Approve/Restore) ---
-            $('a.row-action').on('click', function(e) {
+            // --- Row Action Logic (Review/Restore/Translate) ---
+            $('tr').on('click', 'a.row-action', function(e) {
                 e.preventDefault();
                 
                 var link = $(this);
-                var url = new URL(link.attr('href'));
+                var url;
+                try {
+                    url = new URL(link.attr('href'));
+                } catch (error) {
+                    console.error("Invalid URL:", link.attr('href'));
+                    return;
+                }
+                
                 var action = url.searchParams.get('action');
                 var postId = url.searchParams.get('post');
-                var nonce = url.searchParams.get('_wpnonce');
+                var nonceKey = '_wpnonce';
+                var nonce = url.searchParams.get(nonceKey);
+                var ajaxAction = '';
 
                 if (action === 'restore') {
                     if (!confirm('Are you sure you want to restore this post to its original version? This will delete the current translation.')) {
                         return;
                     }
-                }
-                if (action === 'review') {
-                     // TODO: Implement a proper review modal. For now, just approve.
-                    if (!confirm('This will approve the translation and overwrite the current post content. Are you sure?')) {
+                    ajaxAction = 'gemini_restore_original';
+                    nonce = $('input[name="gemini_restore_nonce"]').val();
+
+                } else if (action === 'review') {
+                    $('#review-post-id').val(postId);
+                    // Fetch data for the modal
+                     $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'gemini_get_review_data',
+                            post_id: postId,
+                            nonce: $('#gemini_get_review_nonce').val()
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $('#review-original-title').text(response.data.original.title);
+                                $('#review-original-content').html(response.data.original.content);
+                                $('#review-translated-title').text(response.data.translated.title);
+                                $('#review-translated-content').html(response.data.translated.content);
+                                $('#gemini-review-modal').show();
+                            } else {
+                                alert('Error: ' + response.data.message);
+                            }
+                        },
+                        error: function() {
+                            alert('An unknown AJAX error occurred while fetching review data.');
+                        }
+                    });
+                    return; // Stop further execution for review action
+
+                } else if (action === 'translate') {
+                     if (!confirm('This will submit the post for translation. Are you sure?')) {
                         return;
                     }
-                    action = 'approve_translation'; // Remap action for AJAX
-                    nonce = $('#gemini_approve_nonce').val();
+                    ajaxAction = 'gemini_translate_post';
+                    nonce = url.searchParams.get('_wpnonce');
+                
                 } else {
-                    action = action + '_translation'; // e.g. 'translate' -> 'translate_post'
+                    return; // Unknown action
                 }
                 
                  $.ajax({
                     url: ajaxurl,
                     type: 'POST',
                     data: {
-                        action: action,
+                        action: ajaxAction,
                         post_id: postId,
-                        nonce: nonce
+                        _wpnonce: nonce
                     },
                     success: function(response) {
                         if (response.success) {
@@ -229,6 +294,40 @@ class Gemini_Translator_Admin {
                 });
             });
 
+            // --- Modal Button Logic ---
+            $('#review-cancel').on('click', function() {
+                $('#gemini-review-modal').hide();
+            });
+
+            $('#review-approve').on('click', function() {
+                var postId = $('#review-post-id').val();
+                if (!postId) {
+                    alert('Error: Post ID not found in modal.');
+                    return;
+                }
+                 $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'gemini_approve_translation',
+                        post_id: postId,
+                        _wpnonce: $('#gemini_approve_nonce').val()
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $('#gemini-review-modal').hide();
+                            alert(response.data.message);
+                            location.reload();
+                        } else {
+                            alert('Error: ' + response.data.message);
+                        }
+                    },
+                    error: function() {
+                        alert('An unknown AJAX error occurred while approving.');
+                    }
+                });
+            });
+
         });
         </script>
         <?php
@@ -236,6 +335,7 @@ class Gemini_Translator_Admin {
         wp_nonce_field( 'gemini_translate_post', 'gemini_translator_nonce', false );
         wp_nonce_field( 'gemini_approve_translation', 'gemini_approve_nonce', false );
         wp_nonce_field( 'gemini_restore_original', 'gemini_restore_nonce', false );
+        wp_nonce_field( 'gemini_get_review_data', 'gemini_get_review_nonce', false );
     }
 
     public function render_settings_page() {
@@ -942,6 +1042,40 @@ class Gemini_Translator_Admin {
             $this->log_message( "Error translating post ID {$post_id}: " . $e->getMessage() );
             wp_send_json_error( array( 'message' => $e->getMessage() ) );
         }
+    }
+
+    /**
+     * Handles fetching data for the review modal.
+     */
+    public function handle_get_review_data() {
+        check_ajax_referer('gemini_get_review_data', 'nonce');
+        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+
+        if (empty($post_id)) {
+            wp_send_json_error(['message' => 'Post ID is missing.']);
+        }
+        
+        global $wpdb;
+        $table_originals = $wpdb->prefix . 'gemini_originals';
+        $table_translations = $wpdb->prefix . 'gemini_translations';
+
+        $original = $wpdb->get_row($wpdb->prepare("SELECT original_title, original_content FROM $table_originals WHERE post_id = %d", $post_id));
+        $translated = $wpdb->get_row($wpdb->prepare("SELECT translated_title, translated_content FROM $table_translations WHERE post_id = %d", $post_id));
+
+        if (!$original || !$translated) {
+            wp_send_json_error(['message' => 'Could not find original and translated versions for this post.']);
+        }
+
+        wp_send_json_success([
+            'original' => [
+                'title' => $original->original_title,
+                'content' => $original->original_content,
+            ],
+            'translated' => [
+                'title' => $translated->translated_title,
+                'content' => $translated->translated_content,
+            ]
+        ]);
     }
 
     /**

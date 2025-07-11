@@ -122,40 +122,41 @@ class Gemini_Translator_Posts_List_Table extends WP_List_Table {
         $table_translations = $wpdb->prefix . 'gemini_translations';
         $category_filter = isset($_REQUEST['cat']) ? (int)$_REQUEST['cat'] : 0;
 
-        // --- Build Query Parts ---
-        $query_select = "SELECT p.ID, p.post_title, p.post_author, p.post_date, COALESCE(t.status, 'Untranslated') as translation_status";
+        // --- Build Base Query Parts (with category filter if applied) ---
         $query_from = "FROM {$table_posts} p LEFT JOIN {$table_translations} t ON p.ID = t.post_id";
-        $query_where = "WHERE p.post_type = 'post' AND p.post_status = 'publish'";
+        $base_query_where = "WHERE p.post_type = 'post' AND p.post_status = 'publish'";
 
-        // Add category filtering if a category is selected
         if ($category_filter > 0) {
+            // Need to join term tables to filter by category
             $query_from .= " INNER JOIN {$wpdb->term_relationships} tr ON p.ID = tr.object_id";
             $query_from .= " INNER JOIN {$wpdb->term_taxonomy} tt ON tr.term_taxonomy_id = tt.term_taxonomy_id";
-            $query_where .= $wpdb->prepare(" AND tt.taxonomy = 'category' AND tt.term_id = %d", $category_filter);
+            $base_query_where .= $wpdb->prepare(" AND tt.taxonomy = 'category' AND tt.term_id = %d", $category_filter);
         }
 
-        // --- Calculate Status Counts for Tabs ---
+        // --- Calculate Status Counts for Tabs using the base query ---
         $this->status_counts = [
-            'all' => $wpdb->get_var("SELECT COUNT(DISTINCT p.ID) {$query_from} {$query_where}"),
-            'pending_review' => $wpdb->get_var("SELECT COUNT(DISTINCT p.ID) {$query_from} {$query_where} AND t.status = 'pending_review'"),
-            'completed' => $wpdb->get_var("SELECT COUNT(DISTINCT p.ID) {$query_from} {$query_where} AND t.status = 'completed'"),
-            'untranslated' => $wpdb->get_var("SELECT COUNT(DISTINCT p.ID) {$query_from} {$query_where} AND t.status IS NULL")
+            'all' => $wpdb->get_var("SELECT COUNT(DISTINCT p.ID) {$query_from} {$base_query_where}"),
+            'pending_review' => $wpdb->get_var("SELECT COUNT(DISTINCT p.ID) {$query_from} {$base_query_where} AND t.status = 'pending_review'"),
+            'completed' => $wpdb->get_var("SELECT COUNT(DISTINCT p.ID) {$query_from} {$base_query_where} AND t.status = 'completed'"),
+            'untranslated' => $wpdb->get_var("SELECT COUNT(DISTINCT p.ID) {$query_from} {$base_query_where} AND t.status IS NULL")
         ];
 
-        // --- Add Status Filtering for the Main Query ---
+        // --- Create the Main Query's WHERE clause by adding the status filter ---
+        $main_query_where = $base_query_where;
         if ($current_status === 'untranslated') {
-            $query_where .= " AND t.status IS NULL";
+            $main_query_where .= " AND t.status IS NULL";
         } elseif ($current_status !== 'all') {
-            $query_where .= $wpdb->prepare(" AND t.status = %s", $current_status);
+            $main_query_where .= $wpdb->prepare(" AND t.status = %s", $current_status);
         }
 
         // --- Pagination ---
         $per_page = 20;
         $current_page = $this->get_pagenum();
         $offset = ( $current_page - 1 ) * $per_page;
-        
+
+        // The total items for pagination is the count of the currently viewed status tab
         $total_items = $this->status_counts[$current_status];
-        
+
         $this->set_pagination_args([
             'total_items' => $total_items,
             'per_page'    => $per_page,
@@ -165,12 +166,19 @@ class Gemini_Translator_Posts_List_Table extends WP_List_Table {
         // --- Sorting ---
         $orderby = ( ! empty( $_REQUEST['orderby'] ) ) ? $_REQUEST['orderby'] : 'date';
         $order = ( ! empty( $_REQUEST['order'] ) ) ? $_REQUEST['order'] : 'desc';
+        // Whitelist orderby to prevent SQL injection
+        $allowed_orderby = ['title', 'author', 'date'];
+        if (!in_array($orderby, $allowed_orderby)) {
+            $orderby = 'date';
+        }
 
         // --- Final Query & Results ---
         $this->_column_headers = [ $this->get_columns(), [], $this->get_sortable_columns() ];
+
+        $query_select = "SELECT DISTINCT p.ID, p.post_title, p.post_author, p.post_date, COALESCE(t.status, 'Untranslated') as translation_status";
         
-        $query = "SELECT DISTINCT " . str_replace('SELECT ', '', $query_select) . " " . $query_from . " " . $query_where
-               . " ORDER BY {$orderby} {$order}"
+        $query = $query_select . " " . $query_from . " " . $main_query_where
+               . " ORDER BY p.post_{$orderby} {$order}"
                . $wpdb->prepare(" LIMIT %d OFFSET %d", $per_page, $offset);
 
         $results = $wpdb->get_results($query, ARRAY_A);
@@ -183,6 +191,7 @@ class Gemini_Translator_Posts_List_Table extends WP_List_Table {
                     'title' => $row['post_title'],
                     'translation_status' => ucfirst(str_replace('_', ' ', $row['translation_status'])),
                     'author' => get_the_author_meta('display_name', $row['post_author']),
+                    'categories' => get_the_category_list(', ', '', $row['ID']),
                     'date' => $row['post_date']
                 ];
             }
