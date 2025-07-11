@@ -124,12 +124,8 @@ class Gemini_Translator_Admin {
                 </div>
             </div>
             
-            <div id="translation-log-container" style="margin-top: 20px; display: flex; gap: 20px;">
-                <div id="live-log-container" style="flex: 1;">
-                    <h3>Live Log</h3>
-                    <div id="batch-log" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background: #f7f7f7; white-space: pre-wrap;"></div>
-                </div>
-                <div id="file-log-container" style="flex: 1;">
+            <div id="translation-log-container" style="margin-top: 20px;">
+                <div id="file-log-container">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3>Full Log (from debug.log)</h3>
                         <a href="#" id="clear-full-log" class="button button-secondary">Clear Full Log</a>
@@ -176,12 +172,7 @@ class Gemini_Translator_Admin {
         <script type="text/javascript">
         jQuery(document).ready(function($) {
 
-            function logMessage(message, color) {
-                $('#batch-log').append('<p style="color:' + color + ';">' + message + '</p>').scrollTop($('#batch-log')[0].scrollHeight);
-            }
-            
             function translatePost(postId, callback) {
-                logMessage('Starting translation for post ID: ' + postId, 'blue');
                  $.ajax({
                     url: ajaxurl,
                     type: 'POST',
@@ -191,18 +182,10 @@ class Gemini_Translator_Admin {
                         nonce: $('#gemini_dashboard_nonce').val()
                     },
                     success: function(response) {
-                        if (response.success) {
-                            logMessage('Post ' + postId + ': ' + response.data.message, 'green');
-                        } else {
-                            logMessage('Post ' + postId + ': Translation failed. ' + response.data.message, 'red');
-                        }
+                        // Success is now only visible in the full debug.log
                     },
                     error: function(jqXHR) {
-                        let errorMsg = 'Post ' + postId + ': An unknown AJAX error occurred.';
-                        if (jqXHR.responseJSON && jqXHR.responseJSON.data && jqXHR.responseJSON.data.message) {
-                            errorMsg = 'Post ' + postId + ': Error: ' + jqXHR.responseJSON.data.message;
-                        }
-                        logMessage(errorMsg, 'red');
+                        // Error is now only visible in the full debug.log
                     },
                     complete: function() {
                         if (typeof callback === 'function') {
@@ -228,18 +211,13 @@ class Gemini_Translator_Admin {
                 var button = $(this);
                 button.prop('disabled', true);
                 $('#batch-progress').show();
-                $('#batch-log').html('');
-                logMessage('Starting batch translation... This might take a while.', 'blue');
-
+                
                 var totalPosts = postIds.length;
                 var processedCount = 0;
                 var batch_delay = <?php echo (int) ( get_option('gemini_translator_options')['batch_delay'] ?? 6 ); ?> * 1000;
 
                 function processNextPost() {
                     if (postIds.length === 0) {
-                        logMessage('--------------------------------------------------', 'blue');
-                        logMessage('Batch processing complete! The page will now reload.', 'blue');
-                        logMessage('--------------------------------------------------', 'blue');
                         setTimeout(function() { location.reload(); }, 2000);
                         return;
                     }
@@ -255,7 +233,7 @@ class Gemini_Translator_Admin {
                         setTimeout(processNextPost, batch_delay);
                     });
                 }
-                
+
                 processNextPost();
             });
 
@@ -292,10 +270,8 @@ class Gemini_Translator_Admin {
                     }
                 } else if (action === 'translate') {
                     if (confirm('This will submit the post for translation. Are you sure?')) {
-                        $('#batch-log').html(''); // Clear log for single translation
                         $(this).css({'pointer-events': 'none', 'color': '#999'}).text('Translating...');
                         translatePost(postId, function() {
-                            logMessage('Translation process finished for post ' + postId + '. Reloading page...', 'blue');
                             setTimeout(function() { location.reload(); }, 1500);
                         });
                     }
@@ -878,7 +854,7 @@ Content Chunk:
 {$content}";
         }
         
-        $response_body = $this->call_gemini_api($prompt, 0);
+        $response_body = $this->call_gemini_api($prompt, $post_id);
 
         if (is_wp_error($response_body)) {
             return ['success' => false, 'message' => $response_body->get_error_message()];
@@ -924,6 +900,8 @@ Content Chunk:
             ]
         ];
 
+        $this->log_message("Post ID $post_id: API Request Body: " . json_encode($request_body, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+
         for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
             $this->log_message("Post ID $post_id: API Request attempt {$attempt}/{$max_retries}");
             
@@ -949,6 +927,7 @@ Content Chunk:
             $response_code = wp_remote_retrieve_response_code($response);
             $response_body = wp_remote_retrieve_body($response);
             
+            $this->log_message("Post ID $post_id: API Response Body on attempt {$attempt}: " . $response_body);
             $this->log_message("Post ID $post_id: API Response Code on attempt {$attempt}: {$response_code}");
 
             if ($response_code === 200) {
@@ -958,16 +937,14 @@ Content Chunk:
                      return $decoded_response['candidates'][0]['content']['parts'][0]['text'];
                 } else {
                      $error_detail = json_last_error_msg();
-                     $this->log_message("Post ID $post_id: Failed to parse valid content from 200 response on attempt {$attempt}. JSON Error: {$error_detail}. Body: " . substr($response_body, 0, 500));
-                     // It's a successful response code, but bad body. Retrying probably won't help.
-                     // Let's break and return an error.
+                     $this->log_message("Post ID $post_id: Failed to parse valid content from 200 response on attempt {$attempt}. JSON Error: {$error_detail}.");
                      break; 
                 }
             }
 
             // Exponential backoff only for specific, retryable server-side errors
             if (in_array($response_code, [429, 503, 500])) {
-                $this->log_message("Post ID $post_id: API attempt {$attempt} failed with retryable status code {$response_code}. Body: " . substr($response_body, 0, 500));
+                $this->log_message("Post ID $post_id: API attempt {$attempt} failed with retryable status code {$response_code}.");
                 if ($attempt < $max_retries) {
                     // Exponential backoff: 2^1, 2^2, 2^3, etc. + random jitter
                     $delay = pow(2, $attempt) + (mt_rand(0, 1000) / 1000);
@@ -977,7 +954,7 @@ Content Chunk:
                 }
             } else {
                 // For non-retryable errors (e.g., 400 Bad Request), log and fail immediately.
-                $this->log_message("Post ID $post_id: API attempt {$attempt} failed with non-retryable status code {$response_code}. Aborting retries. Body: " . substr($response_body, 0, 500));
+                $this->log_message("Post ID $post_id: API attempt {$attempt} failed with non-retryable status code {$response_code}. Aborting retries.");
                 break; // Exit the loop
             }
         }
