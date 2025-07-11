@@ -13,7 +13,10 @@ class Gemini_Translator_Admin {
         add_action( 'admin_menu', array( $this, 'add_plugin_admin_menu' ) );
         add_action( 'add_meta_boxes', array( $this, 'add_translate_meta_box' ) );
         add_action( 'wp_ajax_gemini_translate_post', array( $this, 'handle_translation_request' ) );
-        add_action( 'wp_ajax_gemini_save_translated_post', array( $this, 'handle_save_translated_post' ) );
+        add_action( 'wp_ajax_gemini_approve_translation', array( $this, 'handle_approve_translation' ) );
+        add_action( 'wp_ajax_gemini_restore_original', array( $this, 'handle_restore_original' ) );
+        // The old save function is no longer needed with the new workflow
+        // add_action( 'wp_ajax_gemini_save_translated_post', array( $this, 'handle_save_translated_post' ) );
     }
 
     public function add_plugin_admin_menu() {
@@ -28,8 +31,8 @@ class Gemini_Translator_Admin {
 
         // Batch processing page under "Tools"
         add_management_page(
-            'Batch Translator',
-            'Batch Translator',
+            'Translation Dashboard',
+            'Translation Dashboard',
             'manage_options',
             $this->plugin_name . '-batch',
             array( $this, 'render_batch_page' )
@@ -38,15 +41,25 @@ class Gemini_Translator_Admin {
 
     public function render_batch_page() {
         require_once plugin_dir_path( __FILE__ ) . 'class-gemini-translator-posts-list-table.php';
+
+        $current_status = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : 'all';
+
         $list_table = new Gemini_Translator_Posts_List_Table();
-        $list_table->prepare_items();
+        $list_table->prepare_items($current_status);
         ?>
         <div class="wrap">
-            <h2>Batch Translator</h2>
-            <p>Select posts from the list below and click the button to start the translation process.</p>
+            <h2>Translation Dashboard</h2>
             
+            <ul class="subsubsub">
+                <li><a href="tools.php?page=<?php echo $this->plugin_name . '-batch'; ?>&status=all" class="<?php echo $current_status === 'all' ? 'current' : ''; ?>">All <span class="count">(<?php echo $list_table->get_status_count('all'); ?>)</span></a> |</li>
+                <li><a href="tools.php?page=<?php echo $this->plugin_name . '-batch'; ?>&status=untranslated" class="<?php echo $current_status === 'untranslated' ? 'current' : ''; ?>">Untranslated <span class="count">(<?php echo $list_table->get_status_count('untranslated'); ?>)</span></a> |</li>
+                <li><a href="tools.php?page=<?php echo $this->plugin_name . '-batch'; ?>&status=pending_review" class="<?php echo $current_status === 'pending_review' ? 'current' : ''; ?>">Pending Review <span class="count">(<?php echo $list_table->get_status_count('pending_review'); ?>)</span></a> |</li>
+                <li><a href="tools.php?page=<?php echo $this->plugin_name . '-batch'; ?>&status=completed" class="<?php echo $current_status === 'completed' ? 'current' : ''; ?>">Completed <span class="count">(<?php echo $list_table->get_status_count('completed'); ?>)</span></a></li>
+            </ul>
+
             <form id="posts-filter" method="get">
                 <input type="hidden" name="page" value="<?php echo esc_attr($_REQUEST['page']) ?>" />
+                <input type="hidden" name="status" value="<?php echo esc_attr($current_status); ?>" />
                 <?php
                 $list_table->display();
                 ?>
@@ -63,7 +76,10 @@ class Gemini_Translator_Admin {
         </div>
         <script type="text/javascript">
         jQuery(document).ready(function($) {
-            $('#start-batch-translation').on('click', function() {
+            
+            // --- Batch Translation Logic ---
+            $('#start-batch-translation').on('click', function(e) {
+                e.preventDefault();
                 var postIds = [];
                 $('input[name="post[]"]:checked').each(function() {
                     postIds.push($(this).val());
@@ -85,8 +101,10 @@ class Gemini_Translator_Admin {
 
                 function processNextPost() {
                     if (postIds.length === 0) {
-                        button.prop('disabled', false);
-                        $('#batch-progress-status').text('Batch processing complete!');
+                        logMessage('Batch processing complete! Reloading page to reflect changes...', 'blue');
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
                         return;
                     }
 
@@ -97,90 +115,95 @@ class Gemini_Translator_Admin {
                     $('#batch-progress-bar').css('width', progress + '%');
                     $('#batch-progress-status').text('Processing ' + processedCount + ' of ' + totalPosts + '... (Post ID: ' + postId + ')');
                     
-                    var row = $('input[value="' + postId + '"]').closest('tr');
-                    row.css('background-color', '#f3f3f3');
-
-
-                    // We can re-use the same AJAX action
                     $.ajax({
                         url: ajaxurl,
                         type: 'POST',
                         data: {
-                            action: 'gemini_translate_post', // The one that returns data
+                            action: 'gemini_translate_post',
                             post_id: postId,
-                            nonce: $('#gemini_translator_nonce').val() // We need to add this nonce
+                            nonce: $('#gemini_translator_nonce').val()
                         },
                         success: function(response) {
                             if (response.success) {
                                 if (response.data.status === 'already_in_target_language') {
                                     logMessage('Post ' + postId + ': Skipped (already in target language).', 'blue');
-                                    saveOrSkip(postId, null, processNextPost);
                                 } else {
-                                    logMessage('Post ' + postId + ': Translated successfully. Saving...', 'green');
-                                    saveOrSkip(postId, response.data, processNextPost);
+                                    logMessage('Post ' + postId + ': Translation submitted for review.', 'green');
                                 }
                             } else {
                                 logMessage('Post ' + postId + ': Translation failed. ' + response.data.message, 'red');
-                                processNextPost(); // Move to the next one
                             }
+                            setTimeout(processNextPost, batch_delay);
                         },
                         error: function() {
-                            logMessage('Post ' + postId + ': An unknown error occurred during translation.', 'red');
+                            logMessage('Post ' + postId + ': An unknown AJAX error occurred.', 'red');
                             setTimeout(processNextPost, batch_delay);
                         }
                     });
                 }
                 
-                function saveOrSkip(postId, translationData, callback) {
-                    if (translationData === null) {
-                        // Just a formality to keep the loop going with delay
-                        setTimeout(callback, batch_delay);
-                        return;
-                    }
-
-                    $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'gemini_save_translated_post',
-                            post_id: postId,
-                            nonce: $('#gemini_save_post_nonce').val(), // And this one
-                            title: translationData.translated_title,
-                            content: translationData.translated_content,
-                            meta_description: translationData.meta_description,
-                            meta_keywords: translationData.meta_keywords
-                        },
-                        success: function(saveResponse) {
-                            if (saveResponse.success) {
-                                logMessage('Post ' + postId + ': Saved successfully.', 'green');
-                            } else {
-                                logMessage('Post ' + postId + ': Save failed. ' + saveResponse.data.message, 'red');
-                            }
-                            setTimeout(callback, batch_delay);
-                        },
-                        error: function(jqXHR, textStatus, errorThrown) {
-                            var errorMsg = 'Post ' + postId + ': An unknown error occurred during saving. Status: ' + textStatus;
-                            if (errorThrown) {
-                                errorMsg += ' - ' + errorThrown;
-                            }
-                            logMessage(errorMsg, 'red');
-                            setTimeout(callback, batch_delay);
-                        }
-                    });
-                }
-
                 function logMessage(message, color) {
                     $('#batch-log').append('<p style="color:' + color + ';">' + message + '</p>').scrollTop($('#batch-log')[0].scrollHeight);
                 }
 
                 processNextPost();
             });
+
+            // --- Row Action Logic (Approve/Restore) ---
+            $('a.row-action').on('click', function(e) {
+                e.preventDefault();
+                
+                var link = $(this);
+                var url = new URL(link.attr('href'));
+                var action = url.searchParams.get('action');
+                var postId = url.searchParams.get('post');
+                var nonce = url.searchParams.get('_wpnonce');
+
+                if (action === 'restore') {
+                    if (!confirm('Are you sure you want to restore this post to its original version? This will delete the current translation.')) {
+                        return;
+                    }
+                }
+                if (action === 'review') {
+                     // TODO: Implement a proper review modal. For now, just approve.
+                    if (!confirm('This will approve the translation and overwrite the current post content. Are you sure?')) {
+                        return;
+                    }
+                    action = 'approve_translation'; // Remap action for AJAX
+                    nonce = $('#gemini_approve_nonce').val();
+                } else {
+                    action = action + '_translation'; // e.g. 'translate' -> 'translate_post'
+                }
+                
+                 $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: action,
+                        post_id: postId,
+                        nonce: nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            alert(response.data.message);
+                            location.reload();
+                        } else {
+                            alert('Error: ' + response.data.message);
+                        }
+                    },
+                    error: function() {
+                        alert('An unknown AJAX error occurred.');
+                    }
+                });
+            });
+
         });
         </script>
         <?php
         // We need to output the nonces for the JavaScript to use
         wp_nonce_field( 'gemini_translate_post', 'gemini_translator_nonce', false );
-        wp_nonce_field( 'gemini_save_post_nonce', 'gemini_save_post_nonce', false );
+        wp_nonce_field( 'gemini_approve_translation', 'gemini_approve_nonce', false );
+        wp_nonce_field( 'gemini_restore_original', 'gemini_restore_nonce', false );
     }
 
     public function render_settings_page() {
@@ -808,104 +831,196 @@ class Gemini_Translator_Admin {
     }
 
     public function handle_translation_request() {
-        // Attempt to increase resources for this potentially long-running and memory-intensive task.
-        @ini_set( 'memory_limit', '512M' );
-        @set_time_limit( 600 ); // Increased timeout for chunked processing
-        
-        check_ajax_referer('gemini_translate_post', 'nonce');
+        // Verify nonce
+        check_ajax_referer( 'gemini_translate_post', 'nonce' );
 
-        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-        
-        $this->log_message("--- New Translation Request for Post ID: {$post_id} ---");
-
-        if (empty($post_id)) {
-            $this->log_message("Error: Post ID is missing.");
-            wp_send_json_error(['message' => 'Post ID is missing.']);
+        if ( ! isset( $_POST['post_id'] ) ) {
+            wp_send_json_error( array( 'message' => 'Error: Post ID not provided.' ) );
         }
 
-        $options = get_option('gemini_translator_options');
+        $post_id = intval( $_POST['post_id'] );
+        $post = get_post( $post_id );
+
+        if ( ! $post ) {
+            wp_send_json_error( array( 'message' => 'Error: Post not found.' ) );
+        }
+
+        // Get API Key and target language from settings
+        $options = get_option( 'gemini_translator_options' );
         $api_key = $options['api_key'] ?? '';
         $target_language = $options['target_language'] ?? 'Ukrainian';
 
-        if (empty($api_key)) {
-            $this->log_message("Error: API key is missing.");
-            wp_send_json_error(['message' => 'API key is not configured.']);
+        if ( empty( $api_key ) ) {
+            wp_send_json_error( array( 'message' => 'Error: API key is not set.' ) );
+        }
+        
+        global $wpdb;
+        $table_originals = $wpdb->prefix . 'gemini_originals';
+        $table_translations = $wpdb->prefix . 'gemini_translations';
+
+        // 1. Create a backup if it doesn't exist
+        $backup_exists = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $table_originals WHERE post_id = %d", $post_id ) );
+
+        if ( ! $backup_exists ) {
+            $wpdb->insert(
+                $table_originals,
+                [
+                    'post_id' => $post_id,
+                    'original_title' => $post->post_title,
+                    'original_content' => $post->post_content,
+                    'created_at' => current_time( 'mysql' ),
+                ],
+                ['%d', '%s', '%s', '%s']
+            );
         }
 
-        $post = get_post($post_id);
-        if (!$post) {
-            $this->log_message("Error: Post not found for ID {$post_id}");
-            wp_send_json_error(['message' => 'Post not found.']);
+        // 2. Perform the translation
+        try {
+            $this->log_message( "Starting translation for post ID: {$post_id}" );
+            $translation_result = $this->translate_single_chunk($post->post_title, $post->post_content, $target_language, $api_key);
+
+            if (isset($translation_result['error'])) {
+                 throw new Exception($translation_result['error']);
+            }
+            
+            if ($translation_result['status'] === 'already_in_target_language') {
+                wp_send_json_success( ['status' => 'already_in_target_language'] );
+            }
+
+            // 3. Save translation to our custom table
+            $wpdb->replace(
+                $table_translations,
+                [
+                    'post_id' => $post_id,
+                    'translated_title' => $translation_result['translated_title'],
+                    'translated_content' => $translation_result['translated_content'],
+                    'meta_description' => $translation_result['meta_description'],
+                    'meta_keywords' => $translation_result['meta_keywords'],
+                    'status' => 'pending_review',
+                    'created_at' => current_time( 'mysql' ),
+                    'updated_at' => current_time( 'mysql' ),
+                ],
+                ['%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
+            );
+
+            $this->log_message( "Successfully saved translation for post ID: {$post_id} for review." );
+            wp_send_json_success( [ 'status' => 'pending_review', 'message' => 'Translation complete. Ready for review.' ] );
+
+        } catch ( Exception $e ) {
+            $this->log_message( "Error translating post ID {$post_id}: " . $e->getMessage() );
+            wp_send_json_error( array( 'message' => $e->getMessage() ) );
+        }
+    }
+
+    /**
+     * Handles approving a translation and updating the original post.
+     */
+    public function handle_approve_translation() {
+        check_ajax_referer('gemini_approve_translation', 'nonce');
+        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+
+        if (empty($post_id)) {
+            wp_send_json_error(['message' => 'Post ID is missing.']);
+        }
+        
+        global $wpdb;
+        $table_translations = $wpdb->prefix . 'gemini_translations';
+
+        $translation = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_translations WHERE post_id = %d", $post_id));
+
+        if (!$translation) {
+            wp_send_json_error(['message' => 'Translation not found.']);
         }
 
-        $title_to_translate = $post->post_title;
-        $content_to_translate = $post->post_content;
+        $post_data = [
+            'ID' => $post_id,
+            'post_title' => $translation->translated_title,
+            'post_content' => $translation->translated_content,
+        ];
 
-        // Use chunked translation system
-        $translation_result = $this->translate_chunked_content(
-            $title_to_translate, 
-            $content_to_translate, 
-            $target_language, 
-            $api_key
+        // Update the post
+        wp_update_post($post_data);
+
+        // Update our translation status to 'completed'
+        $wpdb->update(
+            $table_translations,
+            ['status' => 'completed', 'updated_at' => current_time('mysql')],
+            ['post_id' => $post_id],
+            ['%s', '%s'],
+            ['%d']
         );
 
-        if (!$translation_result || !$translation_result['success']) {
-            $error_message = $translation_result['message'] ?? 'Unknown translation error';
-            $this->log_message("Translation failed: {$error_message}");
-            wp_send_json_error(['message' => $error_message]);
-        }
-
-        $data = $translation_result['data'];
-        $chunks_count = $translation_result['chunks_count'] ?? 1;
-        $this->log_message("Translation completed successfully");
-        
-        wp_send_json_success([
-            'translated_title' => $data['translated_title'],
-            'translated_content' => $data['translated_content'],
-            'meta_description' => $data['meta_description'] ?? '',
-            'meta_keywords' => $data['meta_keywords'] ?? '',
-            'chunks_processed' => $chunks_count
-        ]);
+        wp_send_json_success(['message' => 'Post updated with translation successfully.']);
     }
 
+    /**
+     * Handles restoring the original post from backup.
+     */
+    public function handle_restore_original() {
+        check_ajax_referer('gemini_restore_original', 'nonce');
+        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+
+        if (empty($post_id)) {
+            wp_send_json_error(['message' => 'Post ID is missing.']);
+        }
+
+        global $wpdb;
+        $table_originals = $wpdb->prefix . 'gemini_originals';
+        $table_translations = $wpdb->prefix . 'gemini_translations';
+
+        $original = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_originals WHERE post_id = %d", $post_id));
+
+        if (!$original) {
+            wp_send_json_error(['message' => 'Original backup not found.']);
+        }
+
+        // Restore the post
+        wp_update_post([
+            'ID' => $post_id,
+            'post_title' => $original->original_title,
+            'post_content' => $original->original_content,
+        ]);
+
+        // Delete the translation record for this post
+        $wpdb->delete($table_translations, ['post_id' => $post_id], ['%d']);
+
+        wp_send_json_success(['message' => 'Post restored to its original version.']);
+    }
+
+    /*
+     * The old save function is no longer needed with the new workflow.
+     * It is kept here for reference but is not hooked.
     public function handle_save_translated_post() {
-        check_ajax_referer('gemini_save_post_nonce', 'nonce');
+        check_ajax_referer( 'gemini_save_post_nonce', 'nonce' );
 
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-        $new_title = isset($_POST['title']) ? sanitize_text_field($_POST['title']) : '';
-        $new_content = isset($_POST['content']) ? wp_kses_post($_POST['content']) : '';
-        $meta_description = isset($_POST['meta_description']) ? sanitize_text_field($_POST['meta_description']) : '';
-        $meta_keywords = isset($_POST['meta_keywords']) ? sanitize_text_field($_POST['meta_keywords']) : '';
 
-        if (empty($post_id) || empty($new_title) || empty($new_content)) {
-            wp_send_json_error(['message' => 'Missing required data to save.']);
+        if ( empty($post_id) ) {
+            wp_send_json_error( [ 'message' => 'Error: Post ID not provided.' ] );
         }
 
-        $this->log_message("--- Saving confirmed translation for Post ID: {$post_id} ---");
-
-        $updated_post_id = wp_update_post([
+        $update_data = [
             'ID' => $post_id,
-            'post_title' => $new_title,
-            'post_content' => $new_content,
-        ], true);
+            'post_title' => sanitize_text_field( $_POST['title'] ),
+            'post_content' => wp_kses_post( $_POST['content'] ),
+        ];
 
-        if (is_wp_error($updated_post_id)) {
-            $error_message = 'Failed to update post: ' . $updated_post_id->get_error_message();
-            $this->log_message("Error: {$error_message}");
-            wp_send_json_error(['message' => $error_message]);
-        }
-        
-        if (!empty($meta_description)) {
-            update_post_meta($post_id, '_yoast_wpseo_metadesc', $meta_description);
-            update_post_meta($post_id, '_aioseo_description', $meta_description);
-        }
-        if (!empty($meta_keywords)) {
-            update_post_meta($post_id, '_aioseo_keywords', $meta_keywords);
-        }
+        $result = wp_update_post( $update_data, true );
 
-        $this->log_message("Successfully saved post {$post_id}.");
-        wp_send_json_success(['message' => 'Post updated successfully!']);
+        if ( is_wp_error($result) ) {
+            wp_send_json_error( [ 'message' => $result->get_error_message() ] );
+        } else {
+            // Also update meta fields if they exist
+            if ( isset( $_POST['meta_description'] ) ) {
+                update_post_meta( $post_id, '_yoast_wpseo_metadesc', sanitize_text_field( $_POST['meta_description'] ) );
+            }
+            if ( isset( $_POST['meta_keywords'] ) ) {
+                update_post_meta( $post_id, '_yoast_wpseo_focuskw', sanitize_text_field( $_POST['meta_keywords'] ) );
+            }
+            wp_send_json_success( [ 'message' => 'Post saved successfully.' ] );
+        }
     }
+    */
 
     public function add_translate_meta_box() {
         // Add metabox for both classic and block editor

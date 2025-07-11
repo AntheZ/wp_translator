@@ -15,6 +15,17 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 /**
+ * The code that runs during plugin activation.
+ * This action is documented in includes/class-gemini-translator.php
+ */
+function activate_gemini_translator() {
+    require_once plugin_dir_path( __FILE__ ) . 'includes/class-gemini-translator.php';
+    Gemini_Translator::on_activate();
+}
+
+register_activation_hook( __FILE__, 'activate_gemini_translator' );
+
+/**
  * The core plugin class that is used to define internationalization,
  * admin-specific hooks, and public-facing site hooks.
  */
