@@ -885,8 +885,8 @@ Content Chunk:
 
             if (is_wp_error($response)) {
                 $error_message = $response->get_error_message();
-                $this->log_message("Post ID {$post_id}: WP_Error on attempt {$i}. Message: {$error_message}");
-                $this->log_message("Post ID {$post_id}: Full WP_Error object: " . print_r($response, true));
+                $this->log_message("Post ID {$post_id}: WP_Error on attempt {$i}: " . $error_message);
+                if ($i === $max_retries) return ['error' => "WP_Error after {$max_retries} attempts: " . $error_message];
                 sleep(pow(2, $i)); // Exponential backoff
                 continue;
             }
@@ -894,20 +894,57 @@ Content Chunk:
             $response_code = wp_remote_retrieve_response_code($response);
             $response_body = wp_remote_retrieve_body($response);
 
-            $this->log_message("Post ID {$post_id}: API Response Code on attempt {$i}: {$response_code}");
+            $this->log_message("Post ID {$post_id}: API Response Code on attempt {$i}: " . $response_code);
 
             if ($response_code === 200) {
                 $this->log_message("Post ID {$post_id}: API Response Body on attempt {$i}: " . $response_body);
-                return $response_body;
-            }
+                
+                $data = json_decode($response_body, true);
+                
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                     $this->log_message("Post ID {$post_id}: Failed to decode main JSON response. Error: " . json_last_error_msg());
+                     return ['error' => 'Invalid main JSON response from API.'];
+                }
 
-            $this->log_message("Post ID {$post_id}: API Error on attempt {$i}. Code: {$response_code}. Body: " . $response_body);
-            
-            if ($response_code == 429) {
-                $this->log_message("Post ID {$post_id}: Rate limit hit. Waiting for 60 seconds before retrying.");
-                sleep(60); 
+                if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
+                    $nested_json_string = $data['candidates'][0]['content']['parts'][0]['text'];
+                    
+                    // The actual translation is a JSON string within the 'text' field, so we decode it again.
+                    $translated_data = json_decode($nested_json_string, true);
+                    
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        $this->log_message("Post ID {$post_id}: Failed to decode nested JSON from 'text' field. Error: " . json_last_error_msg());
+                        // Attempt to clean the string if it's wrapped in markdown backticks
+                        if (preg_match('/```json\\n(.*?)\\n```/s', $nested_json_string, $matches)) {
+                            $this->log_message("Post ID {$post_id}: Found JSON wrapped in markdown. Trying to extract and decode again.");
+                            $cleaned_json_string = $matches[1];
+                            $translated_data = json_decode($cleaned_json_string, true);
+                            if (json_last_error() === JSON_ERROR_NONE) {
+                                 $this->log_message("Post ID {$post_id}: Successfully decoded cleaned JSON.");
+                                 return $translated_data;
+                            } else {
+                                 $this->log_message("Post ID {$post_id}: Still failed to decode cleaned JSON. Error: " . json_last_error_msg());
+                                 return ['error' => 'Invalid nested JSON response from API even after cleaning.'];
+                            }
+                        }
+                        return ['error' => 'Invalid nested JSON response from API.'];
+                    }
+
+                    $this->log_message("Post ID {$post_id}: Successfully parsed nested JSON.");
+                    return $translated_data;
+                } else {
+                    $this->log_message("Post ID {$post_id}: 'text' field not found in API response structure.");
+                    return ['error' => "Could not find 'text' field in API response."];
+                }
             } else {
-                sleep(pow(2, $i));
+                $this->log_message("Post ID {$post_id}: API Error on attempt {$i}. Code: {$response_code}. Body: " . $response_body);
+                
+                if ($response_code == 429) {
+                    $this->log_message("Post ID {$post_id}: Rate limit hit. Waiting for 60 seconds before retrying.");
+                    sleep(60); 
+                } else {
+                    sleep(pow(2, $i));
+                }
             }
         }
 
