@@ -20,22 +20,35 @@ class Gemini_Translator_Admin {
     }
 
     public function add_plugin_admin_menu() {
-        // Main settings page
-        add_options_page(
-            'Gemini Post Translator Settings',
-            'Gemini Translator',
-            'manage_options',
-            $this->plugin_name,
-            array( $this, 'render_settings_page' )
+        // Add top-level menu
+        add_menu_page(
+            'Gemini Translator', // Page title
+            'Gemini Translator', // Menu title
+            'manage_options',    // Capability
+            'gemini-translator', // Menu slug
+            array( $this, 'render_batch_page' ), // This function will render the dashboard
+            'dashicons-translation', // Icon
+            25 // Position
         );
 
-        // Batch processing page under "Tools"
-        add_management_page(
-            'Translation Dashboard',
-            'Translation Dashboard',
-            'manage_options',
-            $this->plugin_name . '-batch',
-            array( $this, 'render_batch_page' )
+        // Add Dashboard submenu page
+        add_submenu_page(
+            'gemini-translator', // Parent slug
+            'Translation Dashboard', // Page title
+            'Translation Dashboard',// Menu title
+            'manage_options',    // Capability
+            'gemini-translator', // Use parent slug to make it the default page
+            array( $this, 'render_batch_page' ) // Function
+        );
+
+        // Add Settings submenu page
+        add_submenu_page(
+            'gemini-translator', // Parent slug
+            'Gemini Translator Settings', // Page title
+            'Settings',          // Menu title
+            'manage_options',    // Capability
+            'gemini-translator-settings', // Menu slug
+            array( $this, 'render_settings_page' ) // Function
         );
     }
 
@@ -51,10 +64,10 @@ class Gemini_Translator_Admin {
             <h2>Translation Dashboard</h2>
             
             <ul class="subsubsub">
-                <li><a href="tools.php?page=<?php echo $this->plugin_name . '-batch'; ?>&status=all" class="<?php echo $current_status === 'all' ? 'current' : ''; ?>">All <span class="count">(<?php echo $list_table->get_status_count('all'); ?>)</span></a> |</li>
-                <li><a href="tools.php?page=<?php echo $this->plugin_name . '-batch'; ?>&status=untranslated" class="<?php echo $current_status === 'untranslated' ? 'current' : ''; ?>">Untranslated <span class="count">(<?php echo $list_table->get_status_count('untranslated'); ?>)</span></a> |</li>
-                <li><a href="tools.php?page=<?php echo $this->plugin_name . '-batch'; ?>&status=pending_review" class="<?php echo $current_status === 'pending_review' ? 'current' : ''; ?>">Pending Review <span class="count">(<?php echo $list_table->get_status_count('pending_review'); ?>)</span></a> |</li>
-                <li><a href="tools.php?page=<?php echo $this->plugin_name . '-batch'; ?>&status=completed" class="<?php echo $current_status === 'completed' ? 'current' : ''; ?>">Completed <span class="count">(<?php echo $list_table->get_status_count('completed'); ?>)</span></a></li>
+                <li><a href="admin.php?page=gemini-translator&status=all" class="<?php echo $current_status === 'all' ? 'current' : ''; ?>">All <span class="count">(<?php echo $list_table->get_status_count('all'); ?>)</span></a> |</li>
+                <li><a href="admin.php?page=gemini-translator&status=untranslated" class="<?php echo $current_status === 'untranslated' ? 'current' : ''; ?>">Untranslated <span class="count">(<?php echo $list_table->get_status_count('untranslated'); ?>)</span></a> |</li>
+                <li><a href="admin.php?page=gemini-translator&status=pending_review" class="<?php echo $current_status === 'pending_review' ? 'current' : ''; ?>">Pending Review <span class="count">(<?php echo $list_table->get_status_count('pending_review'); ?>)</span></a> |</li>
+                <li><a href="admin.php?page=gemini-translator&status=completed" class="<?php echo $current_status === 'completed' ? 'current' : ''; ?>">Completed <span class="count">(<?php echo $list_table->get_status_count('completed'); ?>)</span></a></li>
             </ul>
 
             <form id="posts-filter" method="get">
@@ -212,7 +225,7 @@ class Gemini_Translator_Admin {
             if ( isset( $_GET['_wpnonce'] ) && wp_verify_nonce( $_GET['_wpnonce'], 'clear_gemini_log_nonce' ) ) {
                 $this->clear_log_file();
                 // Redirect to avoid re-triggering on refresh
-                wp_safe_redirect( admin_url( 'options-general.php?page=' . $this->plugin_name . '&tab=logs&log_cleared=true' ) );
+                wp_safe_redirect( admin_url( 'admin.php?page=gemini-translator-settings&tab=logs&log_cleared=true' ) );
                 exit;
             }
         }
@@ -229,8 +242,8 @@ class Gemini_Translator_Admin {
             <?php settings_errors('gemini-translator-notices'); ?>
 
             <h2 class="nav-tab-wrapper">
-                <a href="?page=<?php echo esc_attr($this->plugin_name); ?>&tab=settings" class="nav-tab <?php echo $active_tab == 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
-                <a href="?page=<?php echo esc_attr($this->plugin_name); ?>&tab=logs" class="nav-tab <?php echo $active_tab == 'logs' ? 'nav-tab-active' : ''; ?>">Logs</a>
+                <a href="admin.php?page=gemini-translator-settings&tab=settings" class="nav-tab <?php echo $active_tab == 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
+                <a href="admin.php?page=gemini-translator-settings&tab=logs" class="nav-tab <?php echo $active_tab == 'logs' ? 'nav-tab-active' : ''; ?>">Logs</a>
             </h2>
 
             <?php if ( $active_tab == 'settings' ) : ?>
@@ -266,7 +279,7 @@ class Gemini_Translator_Admin {
         
         echo '<textarea readonly style="width: 100%; height: 500px; background: #fff; white-space: pre; font-family: monospace;">' . esc_textarea( $log_content ) . '</textarea>';
         
-        $clear_log_url = wp_nonce_url( admin_url( 'options-general.php?page=' . $this->plugin_name . '&action=clear_log' ), 'clear_gemini_log_nonce' );
+        $clear_log_url = wp_nonce_url( admin_url( 'admin.php?page=gemini-translator-settings&action=clear_log' ), 'clear_gemini_log_nonce' );
         echo '<p><a href="' . esc_url( $clear_log_url ) . '" class="button button-danger">Clear Log</a></p>';
     }
 
