@@ -77,17 +77,22 @@ class Gemini_Translator_Posts_List_Table extends WP_List_Table {
     
     protected function column_title( $item ) {
         $actions = [];
-        $base_url = 'tools.php?page=' . $_REQUEST['page'];
+        // Correct base URL for actions
+        $base_url = admin_url('admin.php?page=gemini-translator');
 
         switch ($item['translation_status']) {
             case 'Untranslated':
-                $actions['translate'] = sprintf('<a href="%s&action=translate&post=%s">Translate</a>', wp_nonce_url($base_url, 'translate_' . $item['ID']), $item['ID']);
+                $nonce_url = wp_nonce_url(add_query_arg(['action' => 'translate', 'post' => $item['ID']], $base_url), 'translate_' . $item['ID']);
+                $actions['translate'] = sprintf('<a href="%s" class="row-action">Translate</a>', esc_url($nonce_url));
                 break;
             case 'Pending Review':
-                 $actions['review'] = sprintf('<a href="%s&action=review&post=%s">Review</a>', $base_url, $item['ID']);
+                 // The nonce is handled by JS, so we don't need wp_nonce_url here
+                 $review_url = add_query_arg(['action' => 'review', 'post' => $item['ID']], $base_url);
+                 $actions['review'] = sprintf('<a href="%s" class="row-action">Review</a>', esc_url($review_url));
                 break;
             case 'Completed':
-                $actions['restore'] = sprintf('<a href="%s&action=restore&post=%s" style="color:#a00;">Restore Original</a>', wp_nonce_url($base_url, 'restore_' . $item['ID']), $item['ID']);
+                $nonce_url = wp_nonce_url(add_query_arg(['action' => 'restore', 'post' => $item['ID']], $base_url), 'restore_' . $item['ID']);
+                $actions['restore'] = sprintf('<a href="%s" class="row-action" style="color:#a00;">Restore Original</a>', esc_url($nonce_url));
                 break;
         }
 

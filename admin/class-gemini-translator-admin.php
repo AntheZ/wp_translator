@@ -538,14 +538,33 @@ class Gemini_Translator_Admin {
         $upload_dir = wp_upload_dir();
         $log_dir = $upload_dir['basedir'] . '/gemini-translator-logs';
 
-        if ( ! is_dir( $log_dir ) ) {
-            wp_mkdir_p( $log_dir );
+        if ( ! file_exists( $log_dir ) ) {
+            if ( ! wp_mkdir_p( $log_dir ) ) {
+                error_log('Gemini Translator: Could not create log directory: ' . $log_dir);
+                return;
+            }
+        }
+
+        // Check if directory is writable
+        if ( ! is_writable( $log_dir ) ) {
+            error_log('Gemini Translator: Log directory is not writable: ' . $log_dir);
+            return;
         }
 
         $log_file = $log_dir . '/debug.log';
-        $formatted_message = '[' . date('Y-m-d H:i:s') . '] - ' . ( is_array( $message ) || is_object( $message ) ? json_encode( $message, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) : $message ) . "\n\n";
+        $timestamp = current_time( 'mysql' );
+        
+        // Add separator for new requests
+        if (strpos($message, '---') !== false) {
+            $log_entry = "\n{$message}\n";
+        } else {
+            $log_entry = "[{$timestamp}] {$message}\n";
+        }
 
-        file_put_contents( $log_file, $formatted_message, FILE_APPEND );
+        // Append to the log file
+        if (file_put_contents( $log_file, $log_entry, FILE_APPEND ) === false) {
+            error_log('Gemini Translator: Failed to write to log file: ' . $log_file);
+        }
     }
 
     /**
