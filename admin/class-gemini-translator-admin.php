@@ -65,6 +65,17 @@ class Gemini_Translator_Admin {
         ?>
         <div class="wrap">
             <h2>Translation Dashboard</h2>
+
+            <?php
+            // Display a notice if logging is disabled
+            $this->options = get_option('gemini_translator_options');
+            if ( ! isset( $this->options['enable_logging'] ) || ! $this->options['enable_logging'] ) {
+                echo '<div class="notice notice-warning is-dismissible"><p>';
+                echo '<b>Note:</b> Debug logging is currently disabled. The "Full Log" will be empty. To enable it, go to ';
+                echo '<a href="' . esc_url(admin_url('admin.php?page=gemini-translator-settings')) . '">Settings</a> and check "Enable debug logging".';
+                echo '</p></div>';
+            }
+            ?>
             
             <ul class="subsubsub">
                 <li><a href="admin.php?page=gemini-translator&status=all" class="<?php echo $current_status === 'all' ? 'current' : ''; ?>">All <span class="count">(<?php echo $list_table->get_status_count('all'); ?>)</span></a> |</li>

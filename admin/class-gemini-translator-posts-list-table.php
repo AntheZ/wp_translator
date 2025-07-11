@@ -189,7 +189,7 @@ class Gemini_Translator_Posts_List_Table extends WP_List_Table {
                 $items[] = [
                     'ID' => $row['ID'],
                     'title' => $row['post_title'],
-                    'translation_status' => ucfirst(str_replace('_', ' ', $row['translation_status'])),
+                    'translation_status' => ucwords(str_replace('_', ' ', $row['translation_status'])),
                     'author' => get_the_author_meta('display_name', $row['post_author']),
                     'categories' => get_the_category_list(', ', '', $row['ID']),
                     'date' => $row['post_date']
