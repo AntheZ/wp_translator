@@ -754,50 +754,40 @@ class Gemini_Translator_Admin {
     /**
      * Translate content in chunks with careful output size management
      */
-    private function translate_chunked_content($title, $content, $target_language, $api_key) {
-        $chunks = $this->split_content_for_translation($content);
-        $total_chunks = count($chunks);
+    private function translate_chunked_content($title, $content, $target_language, $api_key, $post_id) {
+        $this->log_message("Entering split_content_for_translation. Max chars: 20000");
+        $chunks = $this->split_content_for_translation($content, 20000);
         
-        $this->log_message("Content split into {$total_chunks} chunks for translation");
-        
+        $chunk_count = count($chunks);
+        if ($chunk_count > 1) {
+            $this->log_message("Content split into {$chunk_count} chunks for translation");
+        } else {
+             $this->log_message("Content will be translated in a single chunk.");
+        }
+
+
+        $full_translation = '';
         $translated_chunks = [];
-        $final_seo_title = '';
-        $final_meta_description = '';
-        $final_meta_keywords = '';
-        $final_translated_title = '';
-        
-        for ($i = 0; $i < $total_chunks; $i++) {
-            $chunk_number = $i + 1;
-            $this->log_message("Translating chunk {$chunk_number}/{$total_chunks} (size: " . strlen($chunks[$i]) . " chars)");
-            
-            $is_first_chunk = ($i === 0);
-            $chunk_result = $this->translate_single_chunk(
-                $is_first_chunk ? $title : '', 
-                $chunks[$i], 
-                $target_language, 
-                $api_key, 
-                $is_first_chunk
-            );
-            
-            if (!$chunk_result['success']) {
+        $is_first_chunk = true;
+        $seo_data = [];
+
+        foreach ($chunks as $index => $chunk) {
+            $chunk_number = $index + 1;
+            $chunk_size = strlen($chunk);
+            $this->log_message("Translating chunk {$chunk_number}/{$chunk_count} (size: {$chunk_size} chars)");
+
+            $chunk_result = $this->translate_single_chunk($title, $chunk, $target_language, $api_key, $is_first_chunk, $post_id);
+
+            if ($chunk_result['success']) {
+                $this->log_message("Successfully translated chunk {$chunk_number}");
+                $translated_chunks[] = $chunk_result['data']['translated_content'];
+                $seo_data[] = $chunk_result['data']; // Store all SEO data for the final combined result
+            } else {
                 $this->log_message("Failed to translate chunk {$chunk_number}: " . ($chunk_result['message'] ?? 'Unknown error'));
                 return ['success' => false, 'message' => "Failed to translate content chunk {$chunk_number}"];
             }
             
-            $chunk_data = $chunk_result['data'];
-            
-            if ($is_first_chunk) {
-                $final_translated_title = $chunk_data['translated_title'] ?? $title;
-                $final_seo_title = $chunk_data['seo_title'] ?? $final_translated_title;
-                $final_meta_description = $chunk_data['meta_description'] ?? '';
-                $final_meta_keywords = $chunk_data['meta_keywords'] ?? '';
-            }
-            
-            $translated_chunks[] = $chunk_data['translated_content'] ?? '';
-            
-            $this->log_message("Successfully translated chunk {$chunk_number}");
-            
-            if ($i < $total_chunks - 1) {
+            if ($index < $chunk_count - 1) {
                 $delay = (int) ($this->options['batch_delay'] ?? 3);
                 sleep($delay > 0 ? $delay : 3);
             }
@@ -810,11 +800,11 @@ class Gemini_Translator_Admin {
         return [
             'success' => true,
             'data' => [
-                'translated_title' => $final_translated_title,
-                'seo_title' => $final_seo_title,
+                'translated_title' => $seo_data[0]['translated_title'] ?? $title, // Use the title from the first chunk
+                'seo_title' => $seo_data[0]['seo_title'] ?? ($seo_data[0]['translated_title'] ?? $title), // Use the SEO title from the first chunk
                 'translated_content' => $combined_content,
-                'meta_description' => $final_meta_description,
-                'meta_keywords' => $final_meta_keywords
+                'meta_description' => $seo_data[0]['meta_description'] ?? '', // Use the meta description from the first chunk
+                'meta_keywords' => $seo_data[0]['meta_keywords'] ?? '' // Use the meta keywords from the first chunk
             ]
         ];
     }
@@ -1075,7 +1065,7 @@ Content Chunk:
 
         $this->log_message("--- Starting SEO translation for post ID: $post_id ---");
 
-        $translation_result = $this->translate_chunked_content($title_to_translate, $content_to_translate, $target_language, $api_key);
+        $translation_result = $this->translate_chunked_content($title_to_translate, $content_to_translate, $target_language, $api_key, $post_id);
 
         if (!$translation_result['success']) {
             $error_message = $translation_result['message'] ?? 'An unknown error occurred during translation.';
