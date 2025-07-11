@@ -14,6 +14,7 @@ class Gemini_Translator_Admin {
         
         // Register AJAX hooks
         add_action( 'wp_ajax_gemini_translate_post', array( $this, 'handle_translation_request' ) );
+        add_action( 'wp_ajax_nopriv_gemini_translate_post', array( $this, 'handle_translation_request' ) ); // Allow for cron/unauthenticated calls
         add_action( 'wp_ajax_gemini_approve_translation', array( $this, 'handle_approve_translation' ) );
         add_action( 'wp_ajax_gemini_restore_original', array( $this, 'handle_restore_original' ) );
         add_action( 'wp_ajax_gemini_get_review_data', array( $this, 'handle_get_review_data' ) );
@@ -172,24 +173,55 @@ class Gemini_Translator_Admin {
         <script type="text/javascript">
         jQuery(document).ready(function($) {
 
-            function translatePost(postId, callback) {
-                 $.ajax({
+            function translatePost(postId, chunk, totalChunks, isBatch = false) {
+                var nonce = $('#gemini_dashboard_nonce').val();
+                
+                // Update UI
+                if (isBatch) {
+                    var progress = (chunk / totalChunks) * 100;
+                    $('#batch-progress-bar').css('width', progress + '%');
+                    var statusText = 'Processing Post ID ' + postId + ' (Chunk ' + chunk + ' of ' + totalChunks + ')...';
+                    $('#batch-progress-status').text(statusText);
+                }
+
+                $.ajax({
                     url: ajaxurl,
                     type: 'POST',
                     data: {
                         action: 'gemini_translate_post',
                         post_id: postId,
-                        nonce: $('#gemini_dashboard_nonce').val()
+                        chunk_to_process: chunk,
+                        nonce: nonce
                     },
                     success: function(response) {
-                        // Success is now only visible in the full debug.log
+                        if (response.success) {
+                            if (response.data.status === 'chunk_translated') {
+                                // If there's a next chunk, call translatePost again for it
+                                translatePost(postId, response.data.next_chunk, response.data.total_chunks, isBatch);
+                            } else if (response.data.status === 'completed') {
+                                // When the last chunk of a post is done
+                                if (isBatch) {
+                                    // Let the batch processor know this post is finished
+                                    $(document).trigger('postTranslationComplete');
+                                } else {
+                                    // For single translations, just reload
+                                    setTimeout(function() { location.reload(); }, 1500);
+                                }
+                            }
+                        } else {
+                            // On error, stop the process for this post and log it
+                            console.error('Error translating post ' + postId + ' chunk ' + chunk + ':', response.data.message);
+                             if (isBatch) {
+                                // Move to the next post in batch on error
+                                $(document).trigger('postTranslationComplete');
+                            }
+                        }
                     },
                     error: function(jqXHR) {
-                        // Error is now only visible in the full debug.log
-                    },
-                    complete: function() {
-                        if (typeof callback === 'function') {
-                            callback();
+                        console.error('AJAX error for post ' + postId + ' chunk ' + chunk, jqXHR.responseText);
+                         if (isBatch) {
+                             // Move to the next post in batch on AJAX error
+                            $(document).trigger('postTranslationComplete');
                         }
                     }
                 });
@@ -198,10 +230,7 @@ class Gemini_Translator_Admin {
             // --- Batch Translation Logic ---
             $('#start-batch-translation').on('click', function(e) {
                 e.preventDefault();
-                var postIds = [];
-                $('input[name="post[]"]:checked').each(function() {
-                    postIds.push($(this).val());
-                });
+                var postIds = Array.from($('input[name="post[]"]:checked')).map(el => $(el).val());
 
                 if (postIds.length === 0) {
                     alert('Please select at least one post to translate.');
@@ -214,26 +243,33 @@ class Gemini_Translator_Admin {
                 
                 var totalPosts = postIds.length;
                 var processedCount = 0;
-                var batch_delay = <?php echo (int) ( get_option('gemini_translator_options')['batch_delay'] ?? 6 ); ?> * 1000;
-
+                
+                // Define the function that will process the next post in the queue.
                 function processNextPost() {
                     if (postIds.length === 0) {
+                        $('#batch-progress-status').text('All posts processed. Reloading...');
+                        $(document).off('postTranslationComplete.batch'); // Clean up the listener
                         setTimeout(function() { location.reload(); }, 2000);
                         return;
                     }
 
-                    var postId = postIds.shift();
                     processedCount++;
+                    var postId = postIds.shift();
+                    $('#batch-progress-status').text('Starting post ' + processedCount + ' of ' + totalPosts + ' (ID: ' + postId + ')');
                     
-                    var progress = (processedCount / totalPosts) * 100;
-                    $('#batch-progress-bar').css('width', progress + '%');
-                    $('#batch-progress-status').text('Processing ' + processedCount + ' of ' + totalPosts + '... (Post ID: ' + postId + ')');
-                    
-                    translatePost(postId, function() {
-                        setTimeout(processNextPost, batch_delay);
-                    });
+                    // Start translation for the first chunk of the current post.
+                    // The 'translatePost' function will handle subsequent chunks internally.
+                    translatePost(postId, 1, 1, true); 
                 }
 
+                // Listen for the custom event that signals a post is fully translated (or failed).
+                // Use a namespace (.batch) to avoid conflicts and to easily unbind later.
+                $(document).on('postTranslationComplete.batch', function() {
+                     var batch_delay = <?php echo (int) ( get_option('gemini_translator_options')['batch_delay'] ?? 3 ); ?> * 1000;
+                     setTimeout(processNextPost, batch_delay);
+                });
+
+                // Kick off the first post
                 processNextPost();
             });
 
@@ -271,9 +307,8 @@ class Gemini_Translator_Admin {
                 } else if (action === 'translate') {
                     if (confirm('This will submit the post for translation. Are you sure?')) {
                         $(this).css({'pointer-events': 'none', 'color': '#999'}).text('Translating...');
-                        translatePost(postId, function() {
-                            setTimeout(function() { location.reload(); }, 1500);
-                        });
+                        // Start with the first chunk
+                        translatePost(postId, 1, 1, false);
                     }
                 }
             });
@@ -752,64 +787,6 @@ class Gemini_Translator_Admin {
     }
     
     /**
-     * Translate content in chunks with careful output size management
-     */
-    private function translate_chunked_content($title, $content, $target_language, $api_key, $post_id) {
-        $this->log_message("Entering split_content_for_translation. Max chars: 20000");
-        $chunks = $this->split_content_for_translation($content, 20000);
-        
-        $chunk_count = count($chunks);
-        if ($chunk_count > 1) {
-            $this->log_message("Content split into {$chunk_count} chunks for translation");
-        } else {
-             $this->log_message("Content will be translated in a single chunk.");
-        }
-
-
-        $full_translation = '';
-        $translated_chunks = [];
-        $is_first_chunk = true;
-        $seo_data = [];
-
-        foreach ($chunks as $index => $chunk) {
-            $chunk_number = $index + 1;
-            $chunk_size = strlen($chunk);
-            $this->log_message("Translating chunk {$chunk_number}/{$chunk_count} (size: {$chunk_size} chars)");
-
-            $chunk_result = $this->translate_single_chunk($title, $chunk, $target_language, $api_key, $is_first_chunk, $post_id);
-
-            if ($chunk_result['success']) {
-                $this->log_message("Successfully translated chunk {$chunk_number}");
-                $translated_chunks[] = $chunk_result['data']['translated_content'];
-                $seo_data[] = $chunk_result['data']; // Store all SEO data for the final combined result
-            } else {
-                $this->log_message("Failed to translate chunk {$chunk_number}: " . ($chunk_result['message'] ?? 'Unknown error'));
-                return ['success' => false, 'message' => "Failed to translate content chunk {$chunk_number}"];
-            }
-            
-            if ($index < $chunk_count - 1) {
-                $delay = (int) ($this->options['batch_delay'] ?? 3);
-                sleep($delay > 0 ? $delay : 3);
-            }
-        }
-        
-        $combined_content = implode("\n\n", $translated_chunks);
-        
-        $this->log_message("All chunks translated successfully. Combined content size: " . strlen($combined_content) . " chars");
-        
-        return [
-            'success' => true,
-            'data' => [
-                'translated_title' => $seo_data[0]['translated_title'] ?? $title, // Use the title from the first chunk
-                'seo_title' => $seo_data[0]['seo_title'] ?? ($seo_data[0]['translated_title'] ?? $title), // Use the SEO title from the first chunk
-                'translated_content' => $combined_content,
-                'meta_description' => $seo_data[0]['meta_description'] ?? '', // Use the meta description from the first chunk
-                'meta_keywords' => $seo_data[0]['meta_keywords'] ?? '' // Use the meta keywords from the first chunk
-            ]
-        ];
-    }
-    
-    /**
      * Translate a single chunk with a specific prompt.
      */
     private function translate_single_chunk($title, $content, $target_language, $api_key, $is_first_chunk, $post_id) {
@@ -873,8 +850,9 @@ Content Chunk:
             return new WP_Error('api_error', 'API Key is not configured.');
         }
 
-        // Using model gemini-1.5-flash as per memory
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={$api_key}";
+        // Using model gemini-2.5-flash as per memory
+        $model = $this->options['model_name'] ?? 'gemini-2.5-flash-latest';
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$api_key}";
 
         $this->log_message("Post ID $post_id: Preparing API request.");
 
@@ -1045,11 +1023,7 @@ Content Chunk:
             return;
         }
 
-        $original_post = get_post($post_id);
-        if (!$original_post) {
-            wp_send_json_error(['message' => 'Post not found.'], 404);
-            return;
-        }
+        $chunk_to_process = isset($_POST['chunk_to_process']) ? intval($_POST['chunk_to_process']) : 1;
 
         $this->options = get_option('gemini_translator_options');
         $api_key = $this->options['api_key'] ?? '';
@@ -1060,35 +1034,116 @@ Content Chunk:
             return;
         }
 
-        $content_to_translate = apply_filters('the_content', $original_post->post_content);
-        $title_to_translate = $original_post->post_title;
+        $this->log_message("--- Translation request for post ID: $post_id, Chunk: $chunk_to_process ---");
 
-        $this->log_message("--- Starting SEO translation for post ID: $post_id ---");
+        // Step 1: On first chunk, initialize and chunk the content
+        if ($chunk_to_process === 1) {
+            $original_post = get_post($post_id);
+            if (!$original_post) {
+                wp_send_json_error(['message' => 'Post not found.'], 404);
+            }
+            $content_to_translate = apply_filters('the_content', $original_post->post_content);
+            $chunks = $this->split_content_for_translation($content_to_translate, 20000);
 
-        $translation_result = $this->translate_chunked_content($title_to_translate, $content_to_translate, $target_language, $api_key, $post_id);
+            // Clean up any previous transient data
+            delete_post_meta($post_id, '_gemini_translation_chunks');
+            delete_post_meta($post_id, '_gemini_translated_chunks');
+            delete_post_meta($post_id, '_gemini_translation_chunk_count');
+            delete_post_meta($post_id, '_gemini_seo_data');
+            delete_post_meta($post_id, '_gemini_original_title');
 
-        if (!$translation_result['success']) {
-            $error_message = $translation_result['message'] ?? 'An unknown error occurred during translation.';
-            $this->log_message("Translation failed for post ID $post_id: " . $error_message);
-            wp_send_json_error(['message' => $error_message]);
-            return;
+
+            update_post_meta($post_id, '_gemini_translation_chunks', $chunks);
+            update_post_meta($post_id, '_gemini_translation_chunk_count', count($chunks));
+            update_post_meta($post_id, '_gemini_translated_chunks', []);
+            update_post_meta($post_id, '_gemini_original_title', $original_post->post_title);
+             $this->log_message("Post $post_id: Content split into " . count($chunks) . " chunks and saved to meta.");
         }
 
-        $translated_data = $translation_result['data'];
+        // Step 2: Process the current chunk
+        $chunks = get_post_meta($post_id, '_gemini_translation_chunks', true);
+        $total_chunks = get_post_meta($post_id, '_gemini_translation_chunk_count', true);
+        $translated_chunks = get_post_meta($post_id, '_gemini_translated_chunks', true);
+        $original_title = get_post_meta($post_id, '_gemini_original_title', true);
+
+        if (empty($chunks) || !is_array($chunks) || !isset($chunks[$chunk_to_process - 1])) {
+            wp_send_json_error(['message' => "Error: Could not find chunk {$chunk_to_process} for post {$post_id}."]);
+        }
         
-        $this->log_message("Saving SEO translation for post ID $post_id.");
-        $this->save_translation(
-            $post_id,
-            $translated_data['translated_title'],
-            $translated_data['translated_content'],
-            $original_post->post_title,
-            $original_post->post_content,
-            $translated_data['seo_title'],
-            $translated_data['meta_description'],
-            $translated_data['meta_keywords']
+        $is_first_chunk = ($chunk_to_process === 1);
+        $current_chunk_content = $chunks[$chunk_to_process - 1];
+        
+        $this->log_message("Post $post_id: Translating chunk {$chunk_to_process}/{$total_chunks}.");
+
+        $chunk_result = $this->translate_single_chunk(
+            $original_title,
+            $current_chunk_content,
+            $target_language,
+            $api_key,
+            $is_first_chunk,
+            $post_id
         );
 
-        wp_send_json_success(['message' => "Post ID $post_id translated with SEO data and is pending review."]);
+        if (!$chunk_result['success']) {
+            $error_message = $chunk_result['message'] ?? 'An unknown error occurred during chunk translation.';
+            $this->log_message("Translation failed for post ID $post_id, chunk $chunk_to_process: " . $error_message);
+            wp_send_json_error(['message' => $error_message]);
+        }
+
+        // Store the result
+        $translated_chunks[$chunk_to_process] = $chunk_result['data']['translated_content'];
+        update_post_meta($post_id, '_gemini_translated_chunks', $translated_chunks);
+        
+        if ($is_first_chunk) {
+            $seo_data = [
+                'translated_title' => $chunk_result['data']['translated_title'] ?? $original_title,
+                'seo_title' => $chunk_result['data']['seo_title'] ?? ($chunk_result['data']['translated_title'] ?? $original_title),
+                'meta_description' => $chunk_result['data']['meta_description'] ?? '',
+                'meta_keywords' => $chunk_result['data']['meta_keywords'] ?? ''
+            ];
+            update_post_meta($post_id, '_gemini_seo_data', $seo_data);
+        }
+
+        // Step 3: Check if all chunks are done
+        if (count($translated_chunks) >= $total_chunks) {
+            $this->log_message("Post $post_id: All $total_chunks chunks translated. Combining and saving.");
+
+            // Combine and save
+            $full_translated_content = implode("\n\n", $translated_chunks);
+            $seo_data = get_post_meta($post_id, '_gemini_seo_data', true);
+            $original_post = get_post($post_id);
+
+            $this->save_translation(
+                $post_id,
+                $seo_data['translated_title'],
+                $full_translated_content,
+                $original_post->post_title,
+                $original_post->post_content,
+                $seo_data['seo_title'],
+                $seo_data['meta_description'],
+                $seo_data['meta_keywords']
+            );
+
+            // Clean up transient meta
+            delete_post_meta($post_id, '_gemini_translation_chunks');
+            delete_post_meta($post_id, '_gemini_translated_chunks');
+            delete_post_meta($post_id, '_gemini_translation_chunk_count');
+            delete_post_meta($post_id, '_gemini_seo_data');
+            delete_post_meta($post_id, '_gemini_original_title');
+
+            wp_send_json_success([
+                'status' => 'completed',
+                'message' => "Post ID $post_id translated successfully and is pending review."
+            ]);
+        } else {
+            // Not done, send response to trigger next chunk
+            wp_send_json_success([
+                'status' => 'chunk_translated',
+                'post_id' => $post_id,
+                'next_chunk' => $chunk_to_process + 1,
+                'total_chunks' => (int)$total_chunks
+            ]);
+        }
     }
     
     private function save_translation($post_id, $translated_title, $translated_content, $original_title, $original_content, $seo_title, $meta_description, $meta_keywords) {
