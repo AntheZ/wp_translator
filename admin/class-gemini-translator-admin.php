@@ -213,7 +213,18 @@ class Gemini_Translator_Admin {
                     $('#batch-progress-bar').css('width', progress + '%');
                     $('#batch-progress-status').text('Processing ' + processedCount + ' of ' + totalPosts + '... (Post ID: ' + postId + ')');
                     
-                    $.ajax({
+                    translatePost(postId, function() {
+                        setTimeout(processNextPost, batch_delay);
+                    });
+                }
+                
+                function logMessage(message, color) {
+                    $('#batch-log').append('<p style="color:' + color + ';">' + message + '</p>').scrollTop($('#batch-log')[0].scrollHeight);
+                }
+                
+                function translatePost(postId, callback) {
+                    logMessage('Starting translation for post ID: ' + postId, 'blue');
+                     $.ajax({
                         url: ajaxurl,
                         type: 'POST',
                         data: {
@@ -227,7 +238,6 @@ class Gemini_Translator_Admin {
                             } else {
                                 logMessage('Post ' + postId + ': Translation failed. ' + response.data.message, 'red');
                             }
-                            setTimeout(processNextPost, batch_delay);
                         },
                         error: function(jqXHR) {
                             let errorMsg = 'Post ' + postId + ': An unknown AJAX error occurred.';
@@ -235,13 +245,13 @@ class Gemini_Translator_Admin {
                                 errorMsg = 'Post ' + postId + ': Error: ' + jqXHR.responseJSON.data.message;
                             }
                             logMessage(errorMsg, 'red');
-                            setTimeout(processNextPost, batch_delay);
+                        },
+                        complete: function() {
+                            if (typeof callback === 'function') {
+                                callback();
+                            }
                         }
                     });
-                }
-                
-                function logMessage(message, color) {
-                    $('#batch-log').append('<p style="color:' + color + ';">' + message + '</p>').scrollTop($('#batch-log')[0].scrollHeight);
                 }
 
                 processNextPost();
@@ -278,10 +288,47 @@ class Gemini_Translator_Admin {
                             }
                         });
                     }
+                } else if (action === 'translate') {
+                    if (confirm('This will submit the post for translation. Are you sure?')) {
+                        $(this).css({'pointer-events': 'none', 'color': '#999'}).text('Translating...');
+                        translatePost(postId, function() {
+                            logMessage('Translation process finished for post ' + postId + '. Reloading page...', 'blue');
+                            setTimeout(function() { location.reload(); }, 1500);
+                        });
+                    }
                 }
             });
 
-            // --- Modal Button Logic ---
+            // --- Modal Logic ---
+            function openReviewModal(postId) {
+                $('#review-post-id').val(postId);
+                 $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'gemini_get_review_data',
+                        post_id: postId,
+                        nonce: $('#gemini_translator_nonce').val()
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                             $('#review-original-title').text(response.data.original.title);
+                             $('#review-original-content').html(response.data.original.content);
+                             $('#review-translated-title').text(response.data.translated.seo_title);
+                             $('#review-translated-content').html(response.data.translated.content);
+                             $('#review-meta-description').text(response.data.translated.meta_description);
+                             $('#review-meta-keywords').text(response.data.translated.meta_keywords);
+                             $('#gemini-review-modal').show();
+                        } else {
+                            alert('Error fetching review data: ' + response.data.message);
+                        }
+                    },
+                    error: function() {
+                        alert('An unknown error occurred while fetching review data.');
+                    }
+                });
+            }
+
             $('#review-cancel').on('click', function() {
                 $('#gemini-review-modal').hide();
             });
