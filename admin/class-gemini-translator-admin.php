@@ -17,6 +17,7 @@ class Gemini_Translator_Admin {
         add_action( 'wp_ajax_gemini_approve_translation', array( $this, 'handle_approve_translation' ) );
         add_action( 'wp_ajax_gemini_restore_original', array( $this, 'handle_restore_original' ) );
         add_action( 'wp_ajax_gemini_get_review_data', array( $this, 'handle_get_review_data' ) );
+        add_action( 'wp_ajax_gemini_reset_translation', array( $this, 'handle_reset_translation' ) );
         add_action( 'wp_ajax_gemini_get_full_log', array( $this, 'handle_get_full_log' ) );
         add_action( 'wp_ajax_gemini_clear_log', array( $this, 'handle_clear_log_ajax' ) );
 
@@ -249,90 +250,35 @@ class Gemini_Translator_Admin {
             // --- Row Action Logic (Review/Restore/Translate) ---
             $(document).on('click', 'a.row-action', function(e) {
                 e.preventDefault();
-                
-                var link = $(this);
-                var url;
-                try {
-                    url = new URL(link.attr('href'));
-                } catch (error) {
-                    console.error("Invalid URL:", link.attr('href'));
-                    return;
-                }
-                
-                var action = url.searchParams.get('action');
-                var postId = url.searchParams.get('post');
-                var nonceKey = '_wpnonce';
-                var nonce = url.searchParams.get(nonceKey);
-                var ajaxAction = '';
+                const action = $(this).data('action');
+                const postId = $(this).data('post-id');
+                const nonce = $('#gemini_translator_nonce').val();
 
-                if (action === 'restore') {
-                    if (!confirm('Are you sure you want to restore this post to its original version? This will delete the current translation.')) {
-                        return;
-                    }
-                    ajaxAction = 'gemini_restore_original';
-                    nonce = $('#gemini_restore_nonce').val();
-
-                } else if (action === 'review') {
-                    $('#review-post-id').val(postId);
-                    // Fetch data for the modal
-                     $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'gemini_get_review_data',
-                            post_id: postId,
-                            gemini_get_review_nonce: $('#gemini_get_review_nonce').val()
-                        },
-                        success: function(response) {
+                if (action === 'review') {
+                    openReviewModal(postId);
+                } else if (action === 'restore') {
+                    if (confirm('Are you sure you want to restore the original content for this post? This will overwrite the current version.')) {
+                        $.post(ajaxurl, { action: 'gemini_restore_original', post_id: postId, nonce: nonce }, function(response) {
                             if (response.success) {
-                                $('#review-original-title').text(response.data.original.title);
-                                $('#review-original-content').html(response.data.original.content);
-                                $('#review-translated-title').text(response.data.translated.seo_title);
-                                $('#review-translated-content').html(response.data.translated.content);
-                                $('#review-meta-description').text(response.data.translated.meta_description);
-                                $('#review-meta-keywords').text(response.data.translated.meta_keywords);
-                                $('#gemini-review-modal').show();
+                                alert('Post restored successfully.');
+                                location.reload();
+                            } else {
+                                alert('Error restoring post: ' + response.data.message);
+                            }
+                        });
+                    }
+                } else if (action === 're-translate') {
+                     if (confirm('Are you sure you want to send this post back for re-translation? The existing translation data will be deleted.')) {
+                        $.post(ajaxurl, { action: 'gemini_reset_translation', post_id: postId, nonce: nonce }, function(response) {
+                            if (response.success) {
+                                alert('Post sent back to "Untranslated" queue.');
+                                location.reload();
                             } else {
                                 alert('Error: ' + response.data.message);
                             }
-                        },
-                        error: function() {
-                            alert('An unknown AJAX error occurred while fetching review data.');
-                        }
-                    });
-                    return; // Stop further execution for review action
-
-                } else if (action === 'translate') {
-                     if (!confirm('This will submit the post for translation. Are you sure?')) {
-                        return;
+                        });
                     }
-                    ajaxAction = 'gemini_translate_post';
-                    nonce = url.searchParams.get('_wpnonce');
-                
-                } else {
-                    return; // Unknown action
                 }
-                
-                 $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: ajaxAction,
-                        post_id: postId,
-                        _wpnonce: nonce // This needs to be flexible for different nonce keys
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            alert(response.data.message);
-                            location.reload();
-                        } else {
-                            alert('Error: ' + response.data.message);
-                        }
-                    },
-                    error: function() {
-                        alert('An unknown AJAX error occurred.');
-                    }
-                });
             });
 
             // --- Modal Button Logic ---
@@ -645,7 +591,8 @@ class Gemini_Translator_Admin {
      * Gemini 2.5 Flash: Input ~1M tokens, Output ~65K tokens
      * We need to ensure each chunk produces output within 65K token limit
      */
-    private function split_content_for_translation($content, $max_input_chars = 150000) {
+    private function split_content_for_translation($content, $max_input_chars = 20000) {
+        $this->log_message("Entering split_content_for_translation. Max chars: {$max_input_chars}");
         // Conservative limit considering:
         // - Input content will be translated (often expands)
         // - Additional HTML structure modernization
@@ -901,7 +848,7 @@ Content Chunk:
     /**
      * Makes the actual API request to Google Gemini.
      */
-    private function call_gemini_api($prompt, $post_id, $max_retries = 2) {
+    private function call_gemini_api($prompt, $post_id, $max_retries = 5) {
         if ( empty( $this->options ) ) {
             $this->options = get_option( 'gemini_translator_options' );
         }
@@ -938,7 +885,14 @@ Content Chunk:
 
             if (is_wp_Error($response)) {
                 $this->log_message("Post ID $post_id: WP_Error on attempt {$attempt}: " . $response->get_error_message());
-                if ($attempt < $max_retries) { sleep(5); continue; }
+                // For WP_Error, a simple retry might work for transient issues like timeouts
+                if ($attempt < $max_retries) {
+                    $delay = pow(2, $attempt);
+                    $this->log_message("Post ID $post_id: Waiting {$delay} seconds before next retry...");
+                    sleep($delay);
+                    continue;
+                }
+                // If all retries fail, return the error
                 return $response;
             }
 
@@ -953,18 +907,74 @@ Content Chunk:
                      $this->log_message("Post ID $post_id: Successfully received and decoded API response.");
                      return $decoded_response['candidates'][0]['content']['parts'][0]['text'];
                 } else {
-                     $this->log_message("Post ID $post_id: Failed to parse valid content from 200 response. Body: " . substr($response_body, 0, 500));
+                     $error_detail = json_last_error_msg();
+                     $this->log_message("Post ID $post_id: Failed to parse valid content from 200 response on attempt {$attempt}. JSON Error: {$error_detail}. Body: " . substr($response_body, 0, 500));
+                     // It's a successful response code, but bad body. Retrying probably won't help.
+                     // Let's break and return an error.
+                     break; 
                 }
             }
-            
-            $this->log_message("Post ID $post_id: API attempt {$attempt} failed. Body: " . substr($response_body, 0, 500));
-            if ($attempt < $max_retries) { sleep(5 + $attempt * 2); }
+
+            // Exponential backoff only for specific, retryable server-side errors
+            if (in_array($response_code, [429, 503, 500])) {
+                $this->log_message("Post ID $post_id: API attempt {$attempt} failed with retryable status code {$response_code}. Body: " . substr($response_body, 0, 500));
+                if ($attempt < $max_retries) {
+                    // Exponential backoff: 2^1, 2^2, 2^3, etc. + random jitter
+                    $delay = pow(2, $attempt) + (mt_rand(0, 1000) / 1000);
+                    $this->log_message("Post ID $post_id: Waiting " . round($delay, 2) . " seconds before next retry...");
+                    usleep($delay * 1000000); // usleep takes microseconds
+                    continue;
+                }
+            } else {
+                // For non-retryable errors (e.g., 400 Bad Request), log and fail immediately.
+                $this->log_message("Post ID $post_id: API attempt {$attempt} failed with non-retryable status code {$response_code}. Aborting retries. Body: " . substr($response_body, 0, 500));
+                break; // Exit the loop
+            }
         }
 
         $this->log_message("Post ID $post_id: API request failed after all attempts.");
         return new WP_Error('api_error', "API request failed after {$max_retries} attempts. Last code: {$response_code}.");
     }
 
+    /**
+     * Resets a translation, deleting it from the custom table.
+     */
+    public function handle_reset_translation() {
+        $nonce = isset($_POST['nonce']) ? $_POST['nonce'] : '';
+        if ( ! wp_verify_nonce( $nonce, 'gemini_translate_post' ) ) {
+            wp_send_json_error( [ 'message' => 'Nonce verification failed.' ], 403 );
+            return;
+        }
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'You do not have permission to perform this action.' ], 403 );
+            return;
+        }
+
+        $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
+        if ( empty( $post_id ) ) {
+            wp_send_json_error( [ 'message' => 'Post ID is required.' ], 400 );
+            return;
+        }
+
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'gemini_translations';
+
+        $deleted = $wpdb->delete(
+            $table_name,
+            [ 'post_id' => $post_id ],
+            [ '%d' ]
+        );
+
+        if ( false === $deleted ) {
+            $this->log_message( "Database error while trying to delete translation for post ID {$post_id}." );
+            wp_send_json_error( [ 'message' => 'Failed to delete existing translation from the database.' ] );
+        } else {
+            $this->log_message( "Translation for post ID {$post_id} deleted. It is now marked as untranslated." );
+            wp_send_json_success( [ 'message' => 'Translation reset successfully.' ] );
+        }
+    }
+    
     /**
      * Extract JSON from API response with better error handling
      */

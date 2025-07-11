@@ -77,22 +77,29 @@ class Gemini_Translator_Posts_List_Table extends WP_List_Table {
     
     protected function column_title( $item ) {
         $actions = [];
-        // Correct base URL for actions
-        $base_url = admin_url('admin.php?page=gemini-translator');
-
+        
         switch ($item['translation_status']) {
             case 'Untranslated':
-                $nonce_url = wp_nonce_url(add_query_arg(['action' => 'translate', 'post' => $item['ID']], $base_url), 'translate_' . $item['ID']);
-                $actions['translate'] = sprintf('<a href="%s" class="row-action">Translate</a>', esc_url($nonce_url));
+                $actions['translate'] = sprintf(
+                    '<a href="#" class="row-action" data-action="translate" data-post-id="%s">Translate</a>',
+                    esc_attr($item['ID'])
+                );
                 break;
             case 'Pending Review':
-                 // The nonce is handled by JS, so we don't need wp_nonce_url here
-                 $review_url = add_query_arg(['action' => 'review', 'post' => $item['ID']], $base_url);
-                 $actions['review'] = sprintf('<a href="%s" class="row-action">Review</a>', esc_url($review_url));
+                 $actions['review'] = sprintf(
+                    '<a href="#" class="row-action" data-action="review" data-post-id="%s">Review</a>',
+                    esc_attr($item['ID'])
+                );
+                $actions['re-translate'] = sprintf(
+                    '<a href="#" class="row-action" data-action="re-translate" data-post-id="%s" style="color:#a00;">Send to Re-translate</a>',
+                    esc_attr($item['ID'])
+                );
                 break;
             case 'Completed':
-                $nonce_url = wp_nonce_url(add_query_arg(['action' => 'restore', 'post' => $item['ID']], $base_url), 'restore_' . $item['ID']);
-                $actions['restore'] = sprintf('<a href="%s" class="row-action" style="color:#a00;">Restore Original</a>', esc_url($nonce_url));
+                $actions['restore'] = sprintf(
+                    '<a href="#" class="row-action" data-action="restore" data-post-id="%s" style="color:#a00;">Restore Original</a>',
+                    esc_attr($item['ID'])
+                );
                 break;
         }
 
