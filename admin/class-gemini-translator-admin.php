@@ -822,7 +822,7 @@ class Gemini_Translator_Admin {
     /**
      * Translate a single chunk with a specific prompt.
      */
-    private function translate_single_chunk($title, $content, $target_language, $api_key, $is_first_chunk) {
+    private function translate_single_chunk($title, $content, $target_language, $api_key, $is_first_chunk, $post_id) {
         $content = $this->optimize_content_for_api($content);
         
         if ($is_first_chunk && !empty($title)) {
