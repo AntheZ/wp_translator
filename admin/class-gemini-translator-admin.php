@@ -907,25 +907,14 @@ Content Chunk:
                 if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
                     $nested_json_string = $data['candidates'][0]['content']['parts'][0]['text'];
                     
-                    // The actual translation is a JSON string within the 'text' field, so we decode it again.
-                    $translated_data = json_decode($nested_json_string, true);
+                    // Use the more robust JSON extraction method
+                    $translated_data = $this->extract_json_from_response($nested_json_string);
                     
-                    if (json_last_error() !== JSON_ERROR_NONE) {
-                        $this->log_message("Post ID {$post_id}: Failed to decode nested JSON from 'text' field. Error: " . json_last_error_msg());
-                        // Attempt to clean the string if it's wrapped in markdown backticks
-                        if (preg_match('/```json\\n(.*?)\\n```/s', $nested_json_string, $matches)) {
-                            $this->log_message("Post ID {$post_id}: Found JSON wrapped in markdown. Trying to extract and decode again.");
-                            $cleaned_json_string = $matches[1];
-                            $translated_data = json_decode($cleaned_json_string, true);
-                            if (json_last_error() === JSON_ERROR_NONE) {
-                                 $this->log_message("Post ID {$post_id}: Successfully decoded cleaned JSON.");
-                                 return $translated_data;
-                            } else {
-                                 $this->log_message("Post ID {$post_id}: Still failed to decode cleaned JSON. Error: " . json_last_error_msg());
-                                 return ['error' => 'Invalid nested JSON response from API even after cleaning.'];
-                            }
-                        }
-                        return ['error' => 'Invalid nested JSON response from API.'];
+                    if (!$translated_data) {
+                        $error_message = "Failed to extract valid JSON from API response's text field.";
+                        $this->log_message("Post ID {$post_id}: " . $error_message);
+                        $this->log_message("Post ID {$post_id}: Raw text field content for debugging: " . substr($nested_json_string, 0, 1500));
+                        return ['error' => $error_message];
                     }
 
                     $this->log_message("Post ID {$post_id}: Successfully parsed nested JSON.");
@@ -1102,6 +1091,15 @@ Content Chunk:
         }
         if (isset($api_result['error'])) {
             wp_send_json_error(['message' => $api_result['error']]);
+            return;
+        }
+
+        // Defensive check: ensure the translated content key exists
+        if (!isset($api_result['translated_content'])) {
+            $error_message = "Post $post_id: API response is missing 'translated_content' key for chunk {$chunk_to_process}.";
+            $this->log_message($error_message);
+            $this->log_message("Full API response for debugging: " . json_encode($api_result));
+            wp_send_json_error(['message' => $error_message]);
             return;
         }
 
