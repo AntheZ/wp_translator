@@ -173,6 +173,11 @@ class Gemini_Translator_Admin {
         <script type="text/javascript">
         jQuery(document).ready(function($) {
 
+            function getCurrentStatusFromURL() {
+                const urlParams = new URLSearchParams(window.location.search);
+                return urlParams.get('status') || 'all';
+            }
+
             function translatePost(postId, chunk, totalChunks, isBatch = false) {
                 var nonce = $('#gemini_dashboard_nonce').val();
                 
@@ -204,8 +209,11 @@ class Gemini_Translator_Admin {
                                     // Let the batch processor know this post is finished
                                     $(document).trigger('postTranslationComplete');
                                 } else {
-                                    // For single translations, just reload
-                                    setTimeout(function() { location.reload(); }, 1500);
+                                    // For single translations, reload to the same status view
+                                    var currentStatus = getCurrentStatusFromURL();
+                                    setTimeout(function() {
+                                        location.href = 'admin.php?page=gemini-translator&status=' + currentStatus;
+                                    }, 1500);
                                 }
                             }
                         } else {
@@ -249,7 +257,10 @@ class Gemini_Translator_Admin {
                     if (postIds.length === 0) {
                         $('#batch-progress-status').text('All posts processed. Reloading...');
                         $(document).off('postTranslationComplete.batch'); // Clean up the listener
-                        setTimeout(function() { location.reload(); }, 2000);
+                        var currentStatus = getCurrentStatusFromURL();
+                        setTimeout(function() { 
+                            location.href = 'admin.php?page=gemini-translator&status=' + currentStatus;
+                        }, 2000);
                         return;
                     }
 
@@ -273,43 +284,35 @@ class Gemini_Translator_Admin {
                 processNextPost();
             });
 
-            // --- Row Action Logic (Review/Restore/Translate) ---
-            $(document).on('click', 'a.row-action', function(e) {
+            // --- Single Action Handlers (Translate, Re-translate, Restore) ---
+            $('.row-action').on('click', function(e) {
                 e.preventDefault();
-                const action = $(this).data('action');
-                const postId = $(this).data('post-id');
-                const nonce = $('#gemini_dashboard_nonce').val();
+                var action = $(this).data('action');
+                var postId = $(this).data('post-id');
+                var nonce = $('#gemini_dashboard_nonce').val();
 
-                if (action === 'review') {
-                    openReviewModal(postId);
+                if (action === 'translate' || action === 're-translate') {
+                    // Start translation for the single post. No batch logic needed.
+                    translatePost(postId, 1, 1, false);
+                    // Optionally, show a spinner or message on the specific row
+                    $(this).closest('tr').css('opacity', '0.5');
+
                 } else if (action === 'restore') {
-                    if (confirm('Are you sure you want to restore the original content for this post? This will overwrite the current version.')) {
-                        $.post(ajaxurl, { action: 'gemini_restore_original', post_id: postId, nonce: nonce }, function(response) {
-                            if (response.success) {
-                                alert('Post restored successfully.');
-                                location.reload();
-                            } else {
-                                alert('Error restoring post: ' + response.data.message);
-                            }
-                        });
+                    if (!confirm('Are you sure you want to restore the original content? This will delete the current translation.')) {
+                        return;
                     }
-                } else if (action === 're-translate') {
-                     if (confirm('Are you sure you want to send this post back for re-translation? The existing translation data will be deleted.')) {
-                        $.post(ajaxurl, { action: 'gemini_reset_translation', post_id: postId, nonce: nonce }, function(response) {
-                            if (response.success) {
-                                alert('Post sent back to "Untranslated" queue.');
-                                location.reload();
-                            } else {
-                                alert('Error: ' + response.data.message);
-                            }
-                        });
-                    }
-                } else if (action === 'translate') {
-                    if (confirm('This will submit the post for translation. Are you sure?')) {
-                        $(this).css({'pointer-events': 'none', 'color': '#999'}).text('Translating...');
-                        // Start with the first chunk
-                        translatePost(postId, 1, 1, false);
-                    }
+                    $.post(ajaxurl, { action: 'gemini_restore_original', post_id: postId, nonce: nonce }, function(response) {
+                        if (response.success) {
+                            var currentStatus = getCurrentStatusFromURL();
+                             setTimeout(function() {
+                                location.href = 'admin.php?page=gemini-translator&status=' + currentStatus;
+                            }, 1000);
+                        } else {
+                            alert('Error: ' + response.data.message);
+                        }
+                    });
+                } else if (action === 'review') {
+                    openReviewModal(postId);
                 }
             });
 
@@ -349,29 +352,16 @@ class Gemini_Translator_Admin {
 
             $('#review-approve').on('click', function() {
                 var postId = $('#review-post-id').val();
-                if (!postId) {
-                    alert('Error: Post ID not found in modal.');
-                    return;
-                }
-                 $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'gemini_approve_translation',
-                        post_id: postId,
-                        nonce: $('#gemini_dashboard_nonce').val()
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            $('#gemini-review-modal').hide();
-                            alert(response.data.message);
-                            location.reload();
-                        } else {
-                            alert('Error: ' + response.data.message);
-                        }
-                    },
-                    error: function() {
-                        alert('An unknown AJAX error occurred while approving.');
+                var nonce = $('#gemini_dashboard_nonce').val();
+                $.post(ajaxurl, { action: 'gemini_approve_translation', post_id: postId, nonce: nonce }, function(response) {
+                    if (response.success) {
+                        $('#gemini-review-modal').hide();
+                        var currentStatus = getCurrentStatusFromURL();
+                        setTimeout(function() {
+                            location.href = 'admin.php?page=gemini-translator&status=' + currentStatus;
+                        }, 1000);
+                    } else {
+                        alert('Error: ' + response.data.message);
                     }
                 });
             });
@@ -1172,14 +1162,20 @@ Content Chunk:
         $originals_table = $wpdb->prefix . 'gemini_originals';
         $translations_table = $wpdb->prefix . 'gemini_translations';
 
-        $wpdb->replace($originals_table, [
+        $originals_data = [
             'post_id' => $post_id,
             'original_title' => $original_title,
             'original_content' => $original_content,
             'saved_at' => current_time('mysql', 1),
-        ]);
+        ];
+        $result_originals = $wpdb->replace($originals_table, $originals_data);
+        if ($result_originals === false) {
+            $this->log_message("DB Error saving original for Post ID {$post_id}: " . $wpdb->last_error);
+            $this->log_message("Originals Query: " . $wpdb->last_query);
+        }
 
-        $wpdb->replace($translations_table, [
+
+        $translations_data = [
             'post_id' => $post_id,
             'translated_title' => $this->sanitize_translation_output($translated_title),
             'translated_content' => $this->sanitize_translation_output($translated_content),
@@ -1189,8 +1185,16 @@ Content Chunk:
             'status' => 'pending_review',
             'translated_at' => current_time('mysql', 1),
             'updated_at' => current_time('mysql', 1),
-        ]);
-        $this->log_message("Saved original and SEO translation for Post ID: {$post_id}");
+        ];
+
+        $result_translations = $wpdb->replace($translations_table, $translations_data);
+
+        if ($result_translations !== false) {
+            $this->log_message("Saved original and SEO translation for Post ID: {$post_id}");
+        } else {
+            $this->log_message("DB Error saving translation for Post ID {$post_id}: " . $wpdb->last_error);
+            $this->log_message("Translation Query: " . $wpdb->last_query);
+        }
     }
 
     /**
