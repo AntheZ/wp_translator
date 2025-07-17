@@ -729,7 +729,7 @@ class Gemini_Translator_Admin {
      */
     private function split_large_section($section, $max_size, &$chunks) {
         // Split by paragraphs
-        $paragraphs = preg_split('/(<\/p>\s*<p[^>]*>)/s', $section, -1, PREG_SPLIT_DELIM_CAPTURE);
+        $paragraphs = preg_split('/(<\/p>\\s*<p[^>]*>)/s', $section, -1, PREG_SPLIT_DELIM_CAPTURE);
         $current_chunk = '';
         
         foreach ($paragraphs as $paragraph) {
@@ -744,7 +744,7 @@ class Gemini_Translator_Admin {
                 }
                 
                 // Split by sentences for very long paragraphs
-                $sentences = preg_split('/(?<=[.!?])\s+/', $paragraph, -1, PREG_SPLIT_NO_EMPTY);
+                $sentences = preg_split('/(?<=[.!?])\\s+/', $paragraph, -1, PREG_SPLIT_NO_EMPTY);
                 $sentence_chunk = '';
                 
                 foreach ($sentences as $sentence) {
@@ -876,7 +876,9 @@ Content Chunk:
             if (is_wp_error($response)) {
                 $error_message = $response->get_error_message();
                 $this->log_message("Post ID {$post_id}: WP_Error on attempt {$i}: " . $error_message);
-                if ($i === $max_retries) return ['error' => "WP_Error after {$max_retries} attempts: " . $error_message];
+                if ($i === $max_retries) {
+                    return ['error' => "WP_Error after {$max_retries} attempts: " . $error_message];
+                }
                 sleep(pow(2, $i)); // Exponential backoff
                 continue;
             }
@@ -1047,38 +1049,37 @@ Content Chunk:
 
         $this->log_message("--- Translation request for post ID: $post_id, Chunk: $chunk_to_process ---");
 
-        // Step 1: On first chunk, initialize and chunk the content
         if ($chunk_to_process === 1) {
             $original_post = get_post($post_id);
             if (!$original_post) {
                 wp_send_json_error(['message' => 'Post not found.'], 404);
+                return;
             }
             $content_to_translate = apply_filters('the_content', $original_post->post_content);
             $chunks = $this->split_content_for_translation($content_to_translate, 20000);
 
-            // Clean up any previous transient data
             delete_post_meta($post_id, '_gemini_translation_chunks');
             delete_post_meta($post_id, '_gemini_translated_chunks');
             delete_post_meta($post_id, '_gemini_translation_chunk_count');
             delete_post_meta($post_id, '_gemini_seo_data');
             delete_post_meta($post_id, '_gemini_original_title');
 
-
             update_post_meta($post_id, '_gemini_translation_chunks', $chunks);
             update_post_meta($post_id, '_gemini_translation_chunk_count', count($chunks));
             update_post_meta($post_id, '_gemini_translated_chunks', []);
             update_post_meta($post_id, '_gemini_original_title', $original_post->post_title);
-             $this->log_message("Post $post_id: Content split into " . count($chunks) . " chunks and saved to meta.");
+            $this->log_message("Post $post_id: Content split into " . count($chunks) . " chunks and saved to meta.");
         }
 
-        // Step 2: Process the current chunk
         $chunks = get_post_meta($post_id, '_gemini_translation_chunks', true);
-        $total_chunks = get_post_meta($post_id, '_gemini_translation_chunk_count', true);
+        $total_chunks = (int) get_post_meta($post_id, '_gemini_translation_chunk_count', true);
         $translated_chunks = get_post_meta($post_id, '_gemini_translated_chunks', true);
         $original_title = get_post_meta($post_id, '_gemini_original_title', true);
 
         if (empty($chunks) || !is_array($chunks) || !isset($chunks[$chunk_to_process - 1])) {
+            $this->log_message("Error: Could not find chunk {$chunk_to_process} for post {$post_id}. Aborting.");
             wp_send_json_error(['message' => "Error: Could not find chunk {$chunk_to_process} for post {$post_id}."]);
+            return;
         }
         
         $is_first_chunk = ($chunk_to_process === 1);
@@ -1086,40 +1087,41 @@ Content Chunk:
         
         $this->log_message("Post $post_id: Translating chunk {$chunk_to_process}/{$total_chunks}.");
 
-        $chunk_result = $this->translate_single_chunk(
-            $original_title,
-            $current_chunk_content,
-            $target_language,
-            $api_key,
-            $is_first_chunk,
-            $post_id
-        );
+        $prompt = $this->build_prompt_for_chunk($original_title, $current_chunk_content, $target_language, $is_first_chunk);
+        $api_result = $this->call_gemini_api($prompt, $post_id);
 
-        if (!$chunk_result['success']) {
-            $error_message = $chunk_result['message'] ?? 'An unknown error occurred during chunk translation.';
-            $this->log_message("Translation failed for post ID $post_id, chunk $chunk_to_process: " . $error_message);
-            wp_send_json_error(['message' => $error_message]);
+        if (is_wp_error($api_result)) {
+            wp_send_json_error(['message' => $api_result->get_error_message()]);
+            return;
+        }
+        if (isset($api_result['error'])) {
+            wp_send_json_error(['message' => $api_result['error']]);
+            return;
         }
 
-        // Store the result
-        $translated_chunks[$chunk_to_process] = $chunk_result['data']['translated_content'];
+        if (!is_array($translated_chunks)) {
+            $translated_chunks = [];
+        }
+        $translated_chunks[$chunk_to_process - 1] = $api_result['translated_content'] ?? '[Content missing]';
         update_post_meta($post_id, '_gemini_translated_chunks', $translated_chunks);
+        $this->log_message("Post $post_id: Saved translated content for chunk " . $chunk_to_process . ".");
         
         if ($is_first_chunk) {
             $seo_data = [
-                'translated_title' => $chunk_result['data']['translated_title'] ?? $original_title,
-                'seo_title' => $chunk_result['data']['seo_title'] ?? ($chunk_result['data']['translated_title'] ?? $original_title),
-                'meta_description' => $chunk_result['data']['meta_description'] ?? '',
-                'meta_keywords' => $chunk_result['data']['meta_keywords'] ?? ''
+                'translated_title' => $api_result['translated_title'] ?? $original_title,
+                'seo_title' => $api_result['seo_title'] ?? ($api_result['translated_title'] ?? $original_title),
+                'meta_description' => $api_result['meta_description'] ?? '',
+                'meta_keywords' => $api_result['meta_keywords'] ?? ''
             ];
             update_post_meta($post_id, '_gemini_seo_data', $seo_data);
+            $this->log_message("Post $post_id: Saved SEO data from the first chunk.");
         }
 
-        // Step 3: Check if all chunks are done
-        if (count($translated_chunks) >= $total_chunks) {
-            $this->log_message("Post $post_id: All $total_chunks chunks translated. Combining and saving.");
+        $this->log_message("Post $post_id: " . count($translated_chunks) . " of " . $total_chunks . " chunks are now translated.");
 
-            // Combine and save
+        if (count($translated_chunks) >= $total_chunks) {
+            $this->log_message("Post $post_id: All chunks translated. Combining and saving.");
+
             $full_translated_content = implode("\n\n", $translated_chunks);
             $seo_data = get_post_meta($post_id, '_gemini_seo_data', true);
             $original_post = get_post($post_id);
@@ -1129,31 +1131,62 @@ Content Chunk:
                 $seo_data['translated_title'],
                 $full_translated_content,
                 $original_post->post_title,
-                $original_post->post_content,
+                apply_filters('the_content', $original_post->post_content),
                 $seo_data['seo_title'],
                 $seo_data['meta_description'],
                 $seo_data['meta_keywords']
             );
 
-            // Clean up transient meta
+            $this->log_message("Post $post_id: Cleaning up temporary meta data.");
             delete_post_meta($post_id, '_gemini_translation_chunks');
             delete_post_meta($post_id, '_gemini_translated_chunks');
             delete_post_meta($post_id, '_gemini_translation_chunk_count');
             delete_post_meta($post_id, '_gemini_seo_data');
             delete_post_meta($post_id, '_gemini_original_title');
 
-            wp_send_json_success([
-                'status' => 'completed',
-                'message' => "Post ID $post_id translated successfully and is pending review."
-            ]);
+            $this->log_message("Post $post_id: Sending 'completed' status to client.");
+            wp_send_json_success(['status' => 'completed', 'message' => "Post ID $post_id translated successfully."]);
         } else {
-            // Not done, send response to trigger next chunk
+            $this->log_message("Post $post_id: Sending 'chunk_translated' status for next chunk.");
             wp_send_json_success([
                 'status' => 'chunk_translated',
                 'post_id' => $post_id,
                 'next_chunk' => $chunk_to_process + 1,
-                'total_chunks' => (int)$total_chunks
+                'total_chunks' => $total_chunks
             ]);
+        }
+    }
+
+    private function build_prompt_for_chunk($title, $content, $target_language, $is_first_chunk) {
+        $content = $this->optimize_content_for_api($content);
+        
+        if ($is_first_chunk && !empty($title)) {
+            return "You are an expert SEO and a professional translator for a WordPress blog.
+Translate the following blog post to {$target_language}.
+
+Tasks:
+1. Translate the original title.
+2. Create a new, SEO-optimized title (shorter, more engaging, in {$target_language}).
+3. Translate the content, preserving all HTML tags.
+4. Generate a concise meta description (max 160 characters, in {$target_language}).
+5. Generate 5-7 relevant meta keywords (comma-separated, in {$target_language}).
+
+The response MUST be a raw JSON object with NO markdown formatting.
+JSON structure: {\"translated_title\": \"...\", \"seo_title\": \"...\", \"translated_content\": \"...\", \"meta_description\": \"...\", \"meta_keywords\": \"...\"}
+
+Original Post:
+Title: {$title}
+
+Content:
+{$content}";
+        } else {
+            return "You are a professional translator. Translate the following HTML content chunk to {$target_language}.
+Preserve all HTML tags perfectly.
+The response MUST be a raw JSON object with NO markdown formatting.
+JSON structure: {\"translated_content\": \"...\"}
+
+Content Chunk:
+{$content}";
         }
     }
     
