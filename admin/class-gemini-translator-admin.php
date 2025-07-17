@@ -620,18 +620,24 @@ class Gemini_Translator_Admin {
     /**
      * Optimize content before sending to API by removing excessive inline styles while preserving structure
      */
-    private function optimize_content_for_api( $content ) {
-        // Remove excessive inline styles from table cells but keep basic structure
-        $content = preg_replace('/style="[^"]*(?:width|height|border)[^"]*"/i', '', $content);
+    private function optimize_content_for_api($content) {
+        // 1. Remove all `style` attributes to get rid of inline styling (width, color, font-family etc.)
+        $content = preg_replace('/\\s*style="[^"]*"/i', '', $content);
+
+        // 2. Remove all `width` and `height` attributes from any tag
+        $content = preg_replace('/\\s*(width|height)="[^"]*"/i', '', $content);
         
-        // Remove width attributes from table elements as they're usually redundant
-        $content = preg_replace('/width="[^"]*"/i', '', $content);
+        // 3. Unwrap `<span>` tags, but keep their content. This cleans up legacy editor code.
+        // This is a simplified approach. For nested spans, it might need multiple passes,
+        // but for most cases, this is sufficient.
+        $content = preg_replace('/<span[^>]*>/i', '', $content);
+        $content = preg_replace('/<\\/span>/i', '', $content);
+
+        // 4. Remove excessive whitespace and empty paragraphs that add to content size
+        $content = preg_replace('/\\s+/', ' ', $content);
+        $content = preg_replace('/<p>\\s*<\\/p>/i', '', $content);
         
-        // Remove excessive whitespace and empty paragraphs that add to content size
-        $content = preg_replace('/\s+/', ' ', $content);
-        $content = preg_replace('/<p>\s*<\/p>/', '', $content);
-        
-        // Clean up any double spaces created by our regex
+        // 5. Clean up any double spaces created by our regex
         $content = str_replace('  ', ' ', $content);
         
         return trim($content);
