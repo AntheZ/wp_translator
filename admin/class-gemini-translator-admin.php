@@ -620,24 +620,18 @@ class Gemini_Translator_Admin {
     /**
      * Optimize content before sending to API by removing excessive inline styles while preserving structure
      */
-    private function optimize_content_for_api($content) {
-        // 1. Remove all `style` attributes to get rid of inline styling (width, color, font-family etc.)
-        $content = preg_replace('/\\s*style="[^"]*"/i', '', $content);
-
-        // 2. Remove all `width` and `height` attributes from any tag
-        $content = preg_replace('/\\s*(width|height)="[^"]*"/i', '', $content);
+    private function optimize_content_for_api( $content ) {
+        // Remove excessive inline styles from table cells but keep basic structure
+        $content = preg_replace('/style="[^"]*(?:width|height|border)[^"]*"/i', '', $content);
         
-        // 3. Unwrap `<span>` tags, but keep their content. This cleans up legacy editor code.
-        // This is a simplified approach. For nested spans, it might need multiple passes,
-        // but for most cases, this is sufficient.
-        $content = preg_replace('/<span[^>]*>/i', '', $content);
-        $content = preg_replace('/<\\/span>/i', '', $content);
-
-        // 4. Remove excessive whitespace and empty paragraphs that add to content size
-        $content = preg_replace('/\\s+/', ' ', $content);
-        $content = preg_replace('/<p>\\s*<\\/p>/i', '', $content);
+        // Remove width attributes from table elements as they're usually redundant
+        $content = preg_replace('/width="[^"]*"/i', '', $content);
         
-        // 5. Clean up any double spaces created by our regex
+        // Remove excessive whitespace and empty paragraphs that add to content size
+        $content = preg_replace('/\s+/', ' ', $content);
+        $content = preg_replace('/<p>\s*<\/p>/', '', $content);
+        
+        // Clean up any double spaces created by our regex
         $content = str_replace('  ', ' ', $content);
         
         return trim($content);
@@ -907,14 +901,25 @@ Content Chunk:
                 if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
                     $nested_json_string = $data['candidates'][0]['content']['parts'][0]['text'];
                     
-                    // Use the more robust JSON extraction method
-                    $translated_data = $this->extract_json_from_response($nested_json_string);
+                    // The actual translation is a JSON string within the 'text' field, so we decode it again.
+                    $translated_data = json_decode($nested_json_string, true);
                     
-                    if (!$translated_data) {
-                        $error_message = "Failed to extract valid JSON from API response's text field.";
-                        $this->log_message("Post ID {$post_id}: " . $error_message);
-                        $this->log_message("Post ID {$post_id}: Raw text field content for debugging: " . substr($nested_json_string, 0, 1500));
-                        return ['error' => $error_message];
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        $this->log_message("Post ID {$post_id}: Failed to decode nested JSON from 'text' field. Error: " . json_last_error_msg());
+                        // Attempt to clean the string if it's wrapped in markdown backticks
+                        if (preg_match('/```json\\n(.*?)\\n```/s', $nested_json_string, $matches)) {
+                            $this->log_message("Post ID {$post_id}: Found JSON wrapped in markdown. Trying to extract and decode again.");
+                            $cleaned_json_string = $matches[1];
+                            $translated_data = json_decode($cleaned_json_string, true);
+                            if (json_last_error() === JSON_ERROR_NONE) {
+                                 $this->log_message("Post ID {$post_id}: Successfully decoded cleaned JSON.");
+                                 return $translated_data;
+                            } else {
+                                 $this->log_message("Post ID {$post_id}: Still failed to decode cleaned JSON. Error: " . json_last_error_msg());
+                                 return ['error' => 'Invalid nested JSON response from API even after cleaning.'];
+                            }
+                        }
+                        return ['error' => 'Invalid nested JSON response from API.'];
                     }
 
                     $this->log_message("Post ID {$post_id}: Successfully parsed nested JSON.");
@@ -1091,15 +1096,6 @@ Content Chunk:
         }
         if (isset($api_result['error'])) {
             wp_send_json_error(['message' => $api_result['error']]);
-            return;
-        }
-
-        // Defensive check: ensure the translated content key exists
-        if (!isset($api_result['translated_content'])) {
-            $error_message = "Post $post_id: API response is missing 'translated_content' key for chunk {$chunk_to_process}.";
-            $this->log_message($error_message);
-            $this->log_message("Full API response for debugging: " . json_encode($api_result));
-            wp_send_json_error(['message' => $error_message]);
             return;
         }
 
